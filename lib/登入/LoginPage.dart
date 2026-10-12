@@ -101,22 +101,30 @@ class _LoginPageState extends State<LoginPage> {
         await prefs.setString('signLink', data.signLink);
         await prefs.setBool('is_logged_in', true);
 
-        final currentRole = data.hasParentRole
-            ? 'M'
-            : (data.schools.isNotEmpty ? data.schools.first.roleCode : 'T');
-        await prefs.setString('role_code', currentRole);
+        // 記錄所屬學校/分校資訊 (若有)
+        if (data.schools.isNotEmpty) {
+          await prefs.setString('depm_no', data.schools.first.depmNo);
+          await prefs.setString('depm_nm', data.schools.first.depmNm);
+        }
+
+        // 判斷角色身分分佈：
+        // 'P' 是家長，非 'P' (如 'M' 主任、'T' 老師) 全都是老師/教職員身分
+        final bool hasParent = data.schools.any((s) => s.roleCode.toUpperCase() == 'P');
+        final bool hasStaff = data.schools.any((s) => s.roleCode.toUpperCase() != 'P');
 
         if (!mounted) return;
 
-        // 登入成功：不彈出 Dialog，直接跳轉對應首頁
-        if (data.hasMultipleRoles) {
+        if (hasParent && hasStaff) {
+          // 同時具備家長與老師/主任身分：跳轉至身分選擇頁
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
               builder: (context) => RoleSelectionPage(loginData: data),
             ),
           );
-        } else if (data.hasParentRole) {
+        } else if (hasParent) {
+          // 單一家長身分
+          await prefs.setString('role_code', 'P');
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
@@ -124,6 +132,9 @@ class _LoginPageState extends State<LoginPage> {
             ),
           );
         } else {
+          // 單一老師/主任身分
+          final staffRole = data.schools.isNotEmpty ? data.schools.first.roleCode : 'T';
+          await prefs.setString('role_code', staffRole);
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
@@ -132,7 +143,6 @@ class _LoginPageState extends State<LoginPage> {
           );
         }
       } else {
-        // 登入失敗：彈出 Dialog
         AppDialog.show(
           title: '登入失敗',
           message: response.msg.isEmpty ? '帳號或密碼錯誤，請重新確認。' : response.msg,
@@ -140,7 +150,6 @@ class _LoginPageState extends State<LoginPage> {
       }
     } catch (e) {
       if (mounted) {
-        // 異常錯誤：彈出 Dialog
         AppDialog.show(
           title: '連線異常',
           message: '連線發生異常：\n$e',

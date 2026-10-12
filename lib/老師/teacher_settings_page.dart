@@ -1,5 +1,7 @@
 import 'dart:io';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_screenutil_plus/flutter_screenutil_plus.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,7 +9,9 @@ import 'package:tutoring/API/auth_service.dart';
 import 'package:tutoring/main.dart';
 
 import '../共用函式/app_dialog.dart';
+import '../共用函式/app_signature_page.dart';
 import '../登入/LoginPage.dart';
+import 'teacher_phrases_page.dart';
 
 class TeacherSettingsPage extends StatefulWidget {
   const TeacherSettingsPage({super.key});
@@ -23,6 +27,10 @@ class _TeacherSettingsPageState extends State<TeacherSettingsPage> {
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _newPasswordController = TextEditingController();
 
+  // 密碼可見性控制
+  bool _obscurePassword = true;
+  bool _obscureNewPassword = true;
+
   String _userNm = '';
   String _userNo = '';
   String _roleName = '課輔/英文老師';
@@ -30,11 +38,17 @@ class _TeacherSettingsPageState extends State<TeacherSettingsPage> {
   String _tel = '';
   String _email = '';
   String _picLink = '';
+  String _signLink = ''; // 👈 預設簽名圖片網址
   String _xApiKey = '';
   String _roleCode = 'T';
 
   File? _localSelectedImage;
+  Uint8List? _newSignatureBytes; // 👈 老師本次手寫暫存的簽名 Bytes
+  bool _hasNewSignature = false; // 👈 是否有修改簽名標記
+
   bool _isUploadingPhoto = false;
+  bool _isSaving = false;
+  bool _isTestingFcm = false;
 
   final ImagePicker _picker = ImagePicker();
 
@@ -57,6 +71,7 @@ class _TeacherSettingsPageState extends State<TeacherSettingsPage> {
       _userNo = prefs.getString('user_no') ?? prefs.getString('saved_user_phone') ?? '';
       _userNm = prefs.getString('user_nm') ?? '';
       _picLink = prefs.getString('picLink') ?? '';
+      _signLink = prefs.getString('signLink') ?? prefs.getString('sign_link') ?? '';
       _schoolName = prefs.getString('school_name') ?? prefs.getString('school_nm') ?? '';
       _tel = prefs.getString('tel') ?? prefs.getString('phone') ?? '';
       _email = prefs.getString('email') ?? '';
@@ -158,7 +173,6 @@ class _TeacherSettingsPageState extends State<TeacherSettingsPage> {
           _localSelectedImage = null;
         });
 
-        // 成功彈出 Dialog[cite: 14]
         AppDialog.show(
           title: '上傳成功',
           message: res['msg']?.toString() ?? '照片更新成功。',
@@ -167,18 +181,21 @@ class _TeacherSettingsPageState extends State<TeacherSettingsPage> {
         setState(() {
           _localSelectedImage = null;
         });
-        // 失敗彈出 Dialog[cite: 14]
-        AppDialog.show(
-          title: '上傳失敗',
-          message: res['msg']?.toString() ?? '上傳失敗，請稍後再試。',
-        );
+
+        final msg = res['msg']?.toString() ?? '';
+        final isAuthExpired = msg.contains('X-API-Key') || msg.contains('已過期');
+        if (!isAuthExpired) {
+          AppDialog.show(
+            title: '上傳失敗',
+            message: msg.isEmpty ? '上傳失敗，請稍後再試。' : msg,
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _localSelectedImage = null;
         });
-        // 異常彈出 Dialog[cite: 14]
         AppDialog.show(
           title: '上傳異常',
           message: '選取或上傳照片異常: $e',
@@ -188,6 +205,330 @@ class _TeacherSettingsPageState extends State<TeacherSettingsPage> {
       if (mounted) {
         setState(() {
           _isUploadingPhoto = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _deletePhoto() async {
+    if (_isUploadingPhoto) return;
+
+    final confirm = await AppDialog.showConfirm(
+      context: context,
+      title: '刪除照片',
+      message: '確定要刪除大頭照嗎？',
+      confirmText: '確定',
+      cancelText: '取消',
+    );
+
+    if (!confirm || !mounted) return;
+
+    setState(() {
+      _isUploadingPhoto = true;
+    });
+
+    try {
+      final res = await AuthService.deletePhoto(
+        userNo: _userNo,
+        xApiKey: _xApiKey,
+        roleCode: _roleCode,
+      );
+
+      if (!mounted) return;
+
+      if (res['success'] == true) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('picLink');
+
+        setState(() {
+          _picLink = '';
+          _localSelectedImage = null;
+        });
+
+        AppDialog.show(
+          title: '提示',
+          message: res['msg']?.toString() ?? '照片刪除成功。',
+        );
+      } else {
+        final msg = res['msg']?.toString() ?? '';
+        final isAuthExpired = msg.contains('X-API-Key') || msg.contains('已過期');
+        if (!isAuthExpired) {
+          AppDialog.show(
+            title: '刪除失敗',
+            message: msg.isEmpty ? '刪除失敗，請稍後再試。' : msg,
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        AppDialog.show(
+          title: '異常',
+          message: '刪除大頭照發生異常: $e',
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUploadingPhoto = false;
+        });
+      }
+    }
+  }
+
+  /// 跳轉至橫向手寫簽名頁
+  /// 跳轉至橫向手寫簽名頁
+  Future<void> _openSignaturePage() async {
+    final Uint8List? signatureResult = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const AppSignaturePage(title: '老師簽名'), // 👈 改呼共用並指定老師標題
+      ),
+    );
+
+    if (signatureResult != null && signatureResult.isNotEmpty) {
+      setState(() {
+        _newSignatureBytes = signatureResult;
+        _hasNewSignature = true;
+      });
+    }
+  }
+
+  /// 測試推播：呼叫 Google FCM HTTP v1 API 真正發送推播給自己
+  Future<void> _handleTestFcm() async {
+    if (_isTestingFcm) return;
+
+    setState(() {
+      _isTestingFcm = true;
+    });
+
+    try {
+      String? token = await FirebaseMessaging.instance.getToken();
+      if (token == null || token.isEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        token = prefs.getString('fcm_token');
+      }
+
+      if (token == null || token.isEmpty) {
+        AppDialog.show(
+          title: '提示',
+          message: '尚未取得本機 FCM Token，請確認通知權限或稍後再試。',
+        );
+        return;
+      }
+
+      await Clipboard.setData(ClipboardData(text: token));
+
+      final res = await AuthService.sendGoogleFcmNotification(
+        fcmToken: token,
+        title: '補習班測試通知',
+        body: '這是一則直接呼叫 Google FCM HTTP v1 API 發送的推播！',
+      );
+
+      if (!mounted) return;
+
+      if (res['success'] == true) {
+        AppDialog.show(
+          title: '推播已送出',
+          message: '已成功向 Google FCM 伺服器提交請求！請將 App 切換至後台或查看頂部狀態列。',
+        );
+      } else {
+        AppDialog.show(
+          title: '發送失敗',
+          message: 'Google 回傳錯誤：${res['msg']}',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        AppDialog.show(
+          title: '異常',
+          message: '測試過程發生錯誤：$e',
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isTestingFcm = false;
+        });
+      }
+    }
+  }
+
+  /// 儲存設定（包含：上傳更新簽名、FCM Token 更新與變更密碼）
+  Future<void> _handleSaveSettings() async {
+    if (_isSaving) return;
+
+    final account = _accountController.text.trim();
+    final oldPassword = _passwordController.text.trim();
+    final newPassword = _newPasswordController.text.trim();
+
+    final alphaNumericRegex = RegExp(r'^[a-zA-Z0-9]+$');
+
+    if (account.isNotEmpty && !alphaNumericRegex.hasMatch(account)) {
+      AppDialog.show(
+        title: '格式錯誤',
+        message: '帳號(行動電話)僅接受英文字母及數字。',
+      );
+      return;
+    }
+
+    final bool hasPasswordChange = oldPassword.isNotEmpty || newPassword.isNotEmpty;
+
+    if (hasPasswordChange) {
+      if (oldPassword.isEmpty) {
+        AppDialog.show(
+          title: '請輸入密碼',
+          message: '變更密碼時，請輸入目前密碼。',
+        );
+        return;
+      }
+
+      if (newPassword.isEmpty) {
+        AppDialog.show(
+          title: '請輸入新密碼',
+          message: '請輸入欲變更的新密碼。',
+        );
+        return;
+      }
+
+      if (!alphaNumericRegex.hasMatch(oldPassword) || !alphaNumericRegex.hasMatch(newPassword)) {
+        AppDialog.show(
+          title: '格式錯誤',
+          message: '密碼僅接受英文字母及數字。',
+        );
+        return;
+      }
+
+      if (newPassword == oldPassword) {
+        AppDialog.show(
+          title: '提示',
+          message: '新密碼不可與目前密碼相同。',
+        );
+        return;
+      }
+    }
+
+    setState(() {
+      _isSaving = true;
+    });
+
+    try {
+      // 1. 若有手寫新簽名，呼叫簽名上傳 API
+      if (_hasNewSignature && _newSignatureBytes != null) {
+        final signRes = await AuthService.uploadSignature(
+          imageBytes: _newSignatureBytes!,
+          userNo: _userNo,
+          xApiKey: _xApiKey,
+          roleCode: _roleCode,
+        );
+
+        if (signRes['success'] == true) {
+          final data = signRes['data'];
+          final uploadedSignLink = (data is Map ? data['picLink'] : null)?.toString() ?? '';
+          if (uploadedSignLink.isNotEmpty) {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('signLink', uploadedSignLink);
+            setState(() {
+              _signLink = uploadedSignLink;
+              _hasNewSignature = false;
+            });
+          }
+        } else {
+          final msg = signRes['msg']?.toString() ?? '簽名更新失敗';
+          final isAuthExpired = msg.contains('X-API-Key') || msg.contains('已過期');
+          if (!isAuthExpired) {
+            AppDialog.show(title: '簽名儲存失敗', message: msg);
+          }
+          return;
+        }
+      }
+
+      // 2. 同步更新 FCM Token
+      String? fcmToken;
+      try {
+        fcmToken = await FirebaseMessaging.instance.getToken();
+      } catch (e) {
+        debugPrint('[FCM] 取得 Token 失敗: $e');
+      }
+
+      if (fcmToken != null && fcmToken.isNotEmpty) {
+        final fcmRes = await AuthService.updateFcmToken(
+          fcmToken: fcmToken,
+          userNo: _userNo,
+          xApiKey: _xApiKey,
+          roleCode: _roleCode,
+        );
+
+        if (fcmRes['success'] == true) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('fcm_token', fcmToken);
+        }
+      }
+
+      if (!mounted) return;
+
+      // 3. 處理變更密碼
+      if (hasPasswordChange) {
+        final res = await AuthService.changePassword(
+          userNo: _userNo,
+          oldPassword: oldPassword,
+          newPassword: newPassword,
+          confirmPassword: newPassword,
+          xApiKey: _xApiKey,
+          roleCode: _roleCode,
+        );
+
+        if (!mounted) return;
+
+        if (res['success'] == true) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.remove('token');
+          await prefs.remove('user_token');
+          await prefs.setBool('is_logged_in', false);
+          await prefs.remove('is_logged_in');
+          await prefs.remove('xApiKey');
+          await prefs.remove('x_api_key');
+
+          await AppDialog.show(
+            title: '密碼變更成功',
+            message: res['msg']?.toString() ?? '密碼變更成功，請使用新密碼重新登入。',
+          );
+
+          if (!mounted) return;
+
+          Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (context) => const LoginPage()),
+                (route) => false,
+          );
+          RestartWidget.restartApp(context);
+          return;
+        } else {
+          final msg = res['msg']?.toString() ?? '';
+          final isAuthExpired = msg.contains('X-API-Key') || msg.contains('已過期');
+          if (!isAuthExpired) {
+            AppDialog.show(
+              title: '變更失敗',
+              message: msg.isEmpty ? '密碼變更失敗，請確認目前密碼是否正確。' : msg,
+            );
+          }
+          return;
+        }
+      }
+
+      AppDialog.show(
+        title: '提示',
+        message: '設定已成功儲存',
+      );
+    } catch (e) {
+      if (mounted) {
+        AppDialog.show(
+          title: '異常',
+          message: '儲存設定連線異常: $e',
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
         });
       }
     }
@@ -213,7 +554,6 @@ class _TeacherSettingsPageState extends State<TeacherSettingsPage> {
   }
 
   Future<void> _handleLogout() async {
-    // 登出確認對話框使用 AppDialog.showConfirm[cite: 14]
     final shouldLogout = await AppDialog.showConfirm(
       context: context,
       title: '確定登出？',
@@ -231,7 +571,7 @@ class _TeacherSettingsPageState extends State<TeacherSettingsPage> {
 
       await prefs.remove('token');
       await prefs.remove('user_token');
-      await prefs.setBool('is_logged_in', false); // 👈 確保設為 false
+      await prefs.setBool('is_logged_in', false);
       await prefs.remove('is_logged_in');
 
       if (isRemembered && savedPhone != null) {
@@ -355,6 +695,9 @@ class _TeacherSettingsPageState extends State<TeacherSettingsPage> {
   }
 
   Widget _buildAccountTab() {
+    final formattedUrl = _formatImageUrl(_picLink);
+    final formattedSignUrl = _formatImageUrl(_signLink);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -364,131 +707,293 @@ class _TeacherSettingsPageState extends State<TeacherSettingsPage> {
         SizedBox(height: 20.h),
         _buildSectionHeader('密碼'),
         SizedBox(height: 8.h),
-        _buildInputField(controller: _passwordController, isPassword: true),
+        _buildInputField(
+          controller: _passwordController,
+          isPassword: true,
+          obscureText: _obscurePassword,
+          onToggleVisibility: () {
+            setState(() {
+              _obscurePassword = !_obscurePassword;
+            });
+          },
+        ),
         SizedBox(height: 20.h),
         _buildSectionHeader('修改密碼'),
         SizedBox(height: 8.h),
-        _buildInputField(controller: _newPasswordController, isPassword: true),
-        SizedBox(height: 24.h),
-        _buildSectionHeader('聯絡簿/作業 常用片語'),
-        SizedBox(height: 12.h),
-        Row(
-          children: [
-            Text(
-              '常用句',
-              style: TextStyle(
-                fontSize: 12.sp,
-                fontWeight: FontWeight.bold,
-                color: const Color(0xFF6C63FF),
-              ),
-            ),
-            SizedBox(width: 8.w),
-            const Expanded(
-              child: Divider(color: Color(0xFF8C86FF), thickness: 1),
-            ),
-          ],
+        _buildInputField(
+          controller: _newPasswordController,
+          isPassword: true,
+          obscureText: _obscureNewPassword,
+          onToggleVisibility: () {
+            setState(() {
+              _obscureNewPassword = !_obscureNewPassword;
+            });
+          },
         ),
-        SizedBox(height: 12.h),
-        Row(
-          children: [
-            Expanded(
-              child: Container(
-                height: 46.h,
-                padding: EdgeInsets.symmetric(horizontal: 14.w),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(22.r),
-                  border: Border.all(color: const Color(0xFF8C86FF), width: 1.5),
-                ),
-                child: TextField(
-                  controller: _customPhraseController,
-                  style: TextStyle(fontSize: 13.sp),
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    hintText: '自訂句子後按插入…',
-                    hintStyle: TextStyle(
-                      color: Color(0xFFBDBDBD),
-                      fontSize: 13,
-                    ),
-                    isCollapsed: true,
-                  ),
-                ),
-              ),
-            ),
-            SizedBox(width: 10.w),
-            GestureDetector(
-              onTap: _addPhrase,
-              child: Container(
-                height: 46.h,
-                padding: EdgeInsets.symmetric(horizontal: 18.w),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEAD8DB),
-                  borderRadius: BorderRadius.circular(22.r),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  '插入',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 13.sp,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-        SizedBox(height: 14.h),
+        SizedBox(height: 20.h),
+
+        // ─── 預設簽名區塊 ───
+        _buildSectionHeader('預設簽名'),
+        SizedBox(height: 8.h),
         Container(
-          padding: EdgeInsets.all(12.w),
+          height: 140.h,
+          width: double.infinity,
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(16.r),
-            border: Border.all(color: const Color(0xFFB0B0B0), width: 0.8),
+            borderRadius: BorderRadius.circular(20.r),
+            border: Border.all(color: const Color(0xFFB0B0B0), width: 1.0),
           ),
-          child: Column(
-            children: _phrases.map((phrase) {
-              return Container(
-                width: double.infinity,
-                margin: EdgeInsets.only(bottom: 8.h),
-                padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 10.h),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE2E2FF),
-                  borderRadius: BorderRadius.circular(12.r),
-                  border: Border.all(color: const Color(0xFFC3C1FF)),
+          clipBehavior: Clip.antiAlias,
+          child: _newSignatureBytes != null
+              ? Image.memory(
+            _newSignatureBytes!,
+            fit: BoxFit.contain,
+          )
+              : (formattedSignUrl.isNotEmpty
+              ? Image.network(
+            formattedSignUrl,
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => const Center(
+              child: Text(
+                '尚未設定簽名',
+                style: TextStyle(color: Color(0xFFBDBDBD)),
+              ),
+            ),
+          )
+              : const Center(
+            child: Text(
+              '尚未設定簽名',
+              style: TextStyle(color: Color(0xFFBDBDBD)),
+            ),
+          )),
+        ),
+        SizedBox(height: 10.h),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: GestureDetector(
+            onTap: _openSignaturePage,
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 8.h),
+              decoration: BoxDecoration(
+                color: const Color(0xFF6C63FF),
+                borderRadius: BorderRadius.circular(18.r),
+              ),
+              child: Text(
+                '修改簽名',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 14.sp,
+                  fontWeight: FontWeight.bold,
                 ),
-                child: Text(
-                  phrase,
-                  style: TextStyle(
-                    color: const Color(0xFF424242),
-                    fontSize: 12.sp,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              );
-            }).toList(),
+              ),
+            ),
           ),
         ),
-        SizedBox(height: 30.h),
-        ElevatedButton(
-          onPressed: () {
-            // 點擊儲存彈出 Dialog[cite: 14]
-            AppDialog.show(
-              title: '提示',
-              message: '設定已成功儲存',
+        SizedBox(height: 24.h),
+
+        GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const TeacherPhrasesPage()),
             );
           },
+          child: Container(
+            width: double.infinity,
+            height: 50.h,
+            decoration: BoxDecoration(
+              color: const Color(0xFFD4D2FE), // 👈 與設計圖一致的淡紫色底
+              borderRadius: BorderRadius.circular(16.r),
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              '聯絡簿/作業 常用片語',
+              style: TextStyle(
+                color: const Color(0xFF6C63FF),
+                fontSize: 15.sp,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ),
+        SizedBox(height: 24.h),
+
+        // 預設大頭照標題
+        Text(
+          '預設大頭照',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 20.sp,
+            fontWeight: FontWeight.w900,
+            color: const Color(0xFF1E1E1E),
+          ),
+        ),
+        SizedBox(height: 18.h),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            GestureDetector(
+              onTap: _showImagePickerModal,
+              child: Container(
+                width: 100.w,
+                height: 100.w,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFD5D5D5),
+                  shape: BoxShape.circle,
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (_localSelectedImage != null)
+                      Image.file(
+                        _localSelectedImage!,
+                        fit: BoxFit.cover,
+                      )
+                    else if (formattedUrl.isNotEmpty)
+                      Image.network(
+                        formattedUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Icon(
+                          Icons.add,
+                          size: 48.sp,
+                          color: Colors.white,
+                        ),
+                      )
+                    else
+                      Icon(
+                        Icons.add,
+                        size: 48.sp,
+                        color: Colors.white,
+                      ),
+                    if (_isUploadingPhoto)
+                      Container(
+                        color: Colors.black.withOpacity(0.4),
+                        child: Center(
+                          child: SizedBox(
+                            width: 24.w,
+                            height: 24.w,
+                            child: const CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            SizedBox(width: 24.w),
+            Container(
+              width: 120.w,
+              height: 94.h,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12.r),
+                border: Border.all(color: const Color(0xFFB0B0B0), width: 1.0),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                children: [
+                  Expanded(
+                    child: Material(
+                      color: const Color(0xFF1B2D4A),
+                      child: InkWell(
+                        onTap: _showImagePickerModal,
+                        child: Center(
+                          child: Text(
+                            '更換照片',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16.sp,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Material(
+                      color: const Color(0xFFBDBDBD),
+                      child: InkWell(
+                        onTap: _deletePhoto,
+                        child: Center(
+                          child: Text(
+                            '刪除照片',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16.sp,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: 32.h),
+
+        // 測試推播按鈕
+        OutlinedButton.icon(
+          onPressed: _isTestingFcm ? null : _handleTestFcm,
+          style: OutlinedButton.styleFrom(
+            side: const BorderSide(color: Color(0xFF4B39EF), width: 1.5),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24.r),
+            ),
+            padding: EdgeInsets.symmetric(vertical: 13.h),
+          ),
+          icon: _isTestingFcm
+              ? SizedBox(
+            width: 18.w,
+            height: 18.w,
+            child: const CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Color(0xFF4B39EF),
+            ),
+          )
+              : Icon(
+            Icons.send_rounded,
+            color: const Color(0xFF4B39EF),
+            size: 20.sp,
+          ),
+          label: Text(
+            _isTestingFcm ? '發送推播中…' : '發送 Google 官方測試推播',
+            style: TextStyle(
+              fontSize: 15.sp,
+              color: const Color(0xFF4B39EF),
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        SizedBox(height: 14.h),
+
+        // 儲存設定按鈕
+        ElevatedButton(
+          onPressed: _isSaving ? null : _handleSaveSettings,
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF9E9BF8),
+            backgroundColor: const Color(0xFF6C63FF),
             elevation: 0,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(24.r),
             ),
             padding: EdgeInsets.symmetric(vertical: 14.h),
           ),
-          child: Text(
+          child: _isSaving
+              ? SizedBox(
+            width: 24.w,
+            height: 24.w,
+            child: const CircularProgressIndicator(
+              strokeWidth: 2.5,
+              color: Colors.white,
+            ),
+          )
+              : Text(
             '儲存',
             style: TextStyle(
               fontSize: 16.sp,
@@ -497,22 +1002,19 @@ class _TeacherSettingsPageState extends State<TeacherSettingsPage> {
             ),
           ),
         ),
-        SizedBox(height: 12.h),
-        OutlinedButton(
-          onPressed: _handleLogout,
-          style: OutlinedButton.styleFrom(
-            side: const BorderSide(color: Color(0xFFFF5252), width: 1.2),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(24.r),
-            ),
-            padding: EdgeInsets.symmetric(vertical: 13.h),
-          ),
-          child: Text(
-            '登出',
-            style: TextStyle(
-              fontSize: 15.sp,
-              color: const Color(0xFFFF5252),
-              fontWeight: FontWeight.bold,
+        SizedBox(height: 16.h),
+
+        // 登出按鈕
+        Center(
+          child: TextButton(
+            onPressed: _handleLogout,
+            child: Text(
+              '登出',
+              style: TextStyle(
+                fontSize: 18.sp,
+                color: Colors.black,
+                fontWeight: FontWeight.w900,
+              ),
             ),
           ),
         ),
@@ -602,69 +1104,53 @@ class _TeacherSettingsPageState extends State<TeacherSettingsPage> {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        GestureDetector(
-                          onTap: _showImagePickerModal,
-                          child: Container(
-                            width: 26.w,
-                            height: 26.w,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFFBDBDBD),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(Icons.edit, size: 14.sp, color: Colors.white),
+                        Container(
+                          width: 72.w,
+                          height: 72.w,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFFD5D5D5),
+                            shape: BoxShape.circle,
                           ),
-                        ),
-                        SizedBox(height: 10.h),
-                        GestureDetector(
-                          onTap: _showImagePickerModal,
-                          child: Container(
-                            width: 72.w,
-                            height: 72.w,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFFD5D5D5),
-                              shape: BoxShape.circle,
-                            ),
-                            clipBehavior: Clip.antiAlias,
-                            child: Stack(
-                              fit: StackFit.expand,
-                              children: [
-                                if (_localSelectedImage != null)
-                                  Image.file(
-                                    _localSelectedImage!,
-                                    fit: BoxFit.cover,
-                                  )
-                                else if (formattedUrl.isNotEmpty)
-                                  Image.network(
-                                    formattedUrl,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => Container(
-                                      color: const Color(0xFFD5D5D5),
-                                      child: Icon(Icons.person, size: 40.sp, color: Colors.white),
-                                    ),
-                                  )
-                                else
-                                  Container(
+                          clipBehavior: Clip.antiAlias,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              if (_localSelectedImage != null)
+                                Image.file(
+                                  _localSelectedImage!,
+                                  fit: BoxFit.cover,
+                                )
+                              else if (formattedUrl.isNotEmpty)
+                                Image.network(
+                                  formattedUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Container(
                                     color: const Color(0xFFD5D5D5),
                                     child: Icon(Icons.person, size: 40.sp, color: Colors.white),
                                   ),
-                                if (_isUploadingPhoto)
-                                  Container(
-                                    color: Colors.black.withOpacity(0.4),
-                                    child: Center(
-                                      child: SizedBox(
-                                        width: 24.w,
-                                        height: 24.w,
-                                        child: const CircularProgressIndicator(
-                                          strokeWidth: 2.5,
-                                          color: Colors.white,
-                                        ),
+                                )
+                              else
+                                Container(
+                                  color: const Color(0xFFD5D5D5),
+                                  child: Icon(Icons.person, size: 40.sp, color: Colors.white),
+                                ),
+                              if (_isUploadingPhoto)
+                                Container(
+                                  color: Colors.black.withOpacity(0.4),
+                                  child: Center(
+                                    child: SizedBox(
+                                      width: 24.w,
+                                      height: 24.w,
+                                      child: const CircularProgressIndicator(
+                                        strokeWidth: 2.5,
+                                        color: Colors.white,
                                       ),
                                     ),
                                   ),
-                              ],
-                            ),
+                                ),
+                            ],
                           ),
-                        ),
+                        )
                       ],
                     ),
                   ],
@@ -782,7 +1268,12 @@ class _TeacherSettingsPageState extends State<TeacherSettingsPage> {
     );
   }
 
-  Widget _buildInputField({required TextEditingController controller, bool isPassword = false}) {
+  Widget _buildInputField({
+    required TextEditingController controller,
+    bool isPassword = false,
+    bool obscureText = false,
+    VoidCallback? onToggleVisibility,
+  }) {
     return Container(
       height: 48.h,
       decoration: BoxDecoration(
@@ -793,7 +1284,7 @@ class _TeacherSettingsPageState extends State<TeacherSettingsPage> {
       child: Center(
         child: TextField(
           controller: controller,
-          obscureText: isPassword,
+          obscureText: isPassword ? obscureText : false,
           textAlignVertical: TextAlignVertical.center,
           style: TextStyle(fontSize: 14.sp),
           decoration: InputDecoration(
@@ -802,6 +1293,17 @@ class _TeacherSettingsPageState extends State<TeacherSettingsPage> {
             enabledBorder: InputBorder.none,
             focusedBorder: InputBorder.none,
             contentPadding: EdgeInsets.symmetric(horizontal: 16.w),
+            suffixIcon: isPassword
+                ? IconButton(
+              icon: Icon(
+                obscureText ? Icons.visibility_off : Icons.visibility,
+                color: const Color(0xFF757575),
+                size: 20.sp,
+              ),
+              splashRadius: 20.r,
+              onPressed: onToggleVisibility,
+            )
+                : null,
           ),
         ),
       ),

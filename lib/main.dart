@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:device_preview/device_preview.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'API/auth_service.dart';
 import '共用函式/GlobalDeviceSwitcher.dart';
 import '共用函式/app_utils.dart';
+import '共用函式/fcm_service.dart';
 import '共用函式/storage_service.dart';
 import '家長/parent_home_page.dart';
 import '老師/teacher_home_page.dart';
@@ -18,7 +20,6 @@ import '登入/RoleSelectionPage.dart';
 /// 🔑 全域 navigatorKey[cite: 29]
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
-/*
 class MyHttpOverrides extends HttpOverrides {
   @override
   HttpClient createHttpClient(SecurityContext? context) {
@@ -32,17 +33,24 @@ class MyHttpOverrides extends HttpOverrides {
   }
 }
 
- */
 
-void main() {
+void main() async{
   // 1. DevicePreview 僅在 Debug 模式開啟[cite: 29]
   DevicePreview.enable(enabled: kDebugMode);
 
   // 2. 初始化 Binding[cite: 29]
   WidgetsFlutterBinding.ensureInitialized();
 
+  // 3. 初始化 Firebase & FCM 推播
+  try {
+    await Firebase.initializeApp();
+    await FcmService.init();
+  } catch (e) {
+    debugPrint('Firebase 初始化異常 (若未放 google-services.json/GoogleService-Info.plist 請先配置): $e');
+  }
+
   // 3. 全域注入 HttpOverrides[cite: 29]
-  //HttpOverrides.global = MyHttpOverrides();
+  HttpOverrides.global = MyHttpOverrides();
 
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(

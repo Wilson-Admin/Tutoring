@@ -11,6 +11,7 @@ plugins {
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+    id("com.google.gms.google-services") // 👈 新增這行
 }
 
 val localProperties = Properties()
@@ -45,6 +46,8 @@ android {
     setProperty("archivesBaseName", "補習班_${flutterVersionName}_${formattedTimeInfo}")
 
     compileOptions {
+        // 👈 1. 開啟脫糖 (Core Library Desugaring)
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -101,4 +104,9 @@ android {
 
 flutter {
     source = "../.."
+}
+
+// 👈 2. 加入 desugar 核心依賴
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

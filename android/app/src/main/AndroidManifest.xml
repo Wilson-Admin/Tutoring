@@ -1,6 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- 網路權限 -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 通知權限 (Android 13+ 必備) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- 震動權限 -->
+    <uses-permission android:name="android.permission.VIBRATE"/>
+
 
     <application
         android:label="補習班"

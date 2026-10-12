@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "52255509882",
+    "project_id": "tutoring-e52e6",
+    "storage_bucket": "tutoring-e52e6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:52255509882:android:87cd3090b765f695249ac3",
+        "android_client_info": {
+          "package_name": "com.huaweidigi.tutoring"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCguav_8DFa0uVaK-QhdHU8oq7fIHXKm6Y"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
