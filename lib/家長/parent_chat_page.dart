@@ -1,8 +1,88 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil_plus/flutter_screenutil_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../API/auth_service.dart';
+import '../資料結構/ChatListResponse.dart';
 
-class ParentChatPage extends StatelessWidget {
-  const ParentChatPage({super.key});
+class ParentChatPage extends StatefulWidget {
+  final ValueChanged<int>? onUnreadChanged; // 👈 增加未讀數量變更回呼
+
+  const ParentChatPage({super.key, this.onUnreadChanged});
+
+  @override
+  State<ParentChatPage> createState() => _ParentChatPageState();
+}
+
+class _ParentChatPageState extends State<ParentChatPage> {
+  bool _isLoading = false;
+  List<ChatItem> _chats = [];
+
+  // 頭像背景色調色盤
+  final List<Color> _avatarColors = [
+    const Color(0xFFF59E0B), // 暖橘
+    const Color(0xFF7C69FF), // 靛紫
+    const Color(0xFF00B7D4), // 湖水藍
+    const Color(0xFF00B074), // 翠綠
+    const Color(0xFFEC4899), // 粉紅
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchParentChats();
+  }
+
+  Future<void> _fetchParentChats() async {
+    setState(() => _isLoading = true);
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userNo = prefs.getString('user_no') ?? '';
+      final xApiKey = prefs.getString('x_api_key') ?? prefs.getString('xApiKey') ?? '';
+      final roleCode = prefs.getString('role_code') ?? 'P';
+
+      final res = await AuthService.getChats(
+        userNo: userNo,
+        xApiKey: xApiKey,
+        roleCode: roleCode,
+      );
+
+      if (!mounted) return;
+
+      if (res.success && res.data != null) {
+        setState(() {
+          _chats = res.data!.chats;
+        });
+        // 👈 回呼通知首頁更新導航列未讀 Badge
+        widget.onUnreadChanged?.call(res.data!.unreadTotal);
+      }
+    } catch (e) {
+      debugPrint('[ParentChat] 讀取家長聊天室失敗: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  String _formatTime(String rawTime) {
+    if (rawTime.isEmpty) return '';
+    try {
+      final dt = DateTime.parse(rawTime);
+      final now = DateTime.now();
+      if (dt.year == now.year && dt.month == now.month && dt.day == now.day) {
+        final hh = dt.hour.toString().padLeft(2, '0');
+        final mm = dt.minute.toString().padLeft(2, '0');
+        return '$hh:$mm';
+      }
+      return '${dt.month.toString().padLeft(2, '0')}/${dt.day.toString().padLeft(2, '0')}';
+    } catch (_) {
+      if (rawTime.length >= 16) {
+        return rawTime.substring(11, 16);
+      }
+      return rawTime;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -34,39 +114,51 @@ class ParentChatPage extends StatelessWidget {
                     ),
                     SizedBox(height: 20.h),
 
-                    // 群組卡片 1：小朋友A 群組
-                    _buildChatCard(
-                      letter: 'A',
-                      avatarBgColor: const Color(0xFFF59E0B),
-                      title: '小朋友A 群組',
-                      message: '課程通知已更新請查看',
-                      time: '10:15',
-                      badgeCount: 2,
-                    ),
-                    SizedBox(height: 12.h),
+                    // 聊天室卡片列表
+                    if (_isLoading)
+                      Padding(
+                        padding: EdgeInsets.symmetric(vertical: 40.h),
+                        child: const Center(
+                          child: CircularProgressIndicator(color: Color(0xFF7C69FF)),
+                        ),
+                      )
+                    else if (_chats.isEmpty)
+                      Padding(
+                        padding: EdgeInsets.symmetric(vertical: 40.h),
+                        child: Center(
+                          child: Text(
+                            '目前無任何對話訊息',
+                            style: TextStyle(
+                              fontSize: 14.sp,
+                              color: const Color(0xFF9E9E9E),
+                            ),
+                          ),
+                        ),
+                      )
+                    else
+                      ...List.generate(_chats.length, (index) {
+                        final chat = _chats[index];
+                        final avatarColor = _avatarColors[index % _avatarColors.length];
+                        final initialLetter = chat.studentNm.isNotEmpty
+                            ? chat.studentNm.substring(0, 1)
+                            : '學';
 
-                    // 群組卡片 2：小朋友B 群組
-                    _buildChatCard(
-                      letter: 'B',
-                      avatarBgColor: const Color(0xFF7C69FF),
-                      title: '小朋友B 群組',
-                      message: '老師：怡君進步非常明顯！繼續加油 🌟',
-                      time: '週四',
-                    ),
-                    SizedBox(height: 12.h),
+                        return Padding(
+                          padding: EdgeInsets.only(bottom: 12.h),
+                          child: _buildChatCard(
+                            letter: initialLetter,
+                            avatarBgColor: avatarColor,
+                            title: '${chat.studentNm} 群組',
+                            tag: chat.classNm.isNotEmpty ? chat.classNm : null,
+                            message: chat.lastMessage.isNotEmpty ? chat.lastMessage : '尚無對話記錄',
+                            time: _formatTime(chat.lastMessageAt),
+                            badgeCount: chat.unreadCount,
+                            isHighlight: chat.unreadCount > 0,
+                            isMessageBold: chat.unreadCount > 0,
+                          ),
+                        );
+                      }),
 
-                    // 群組卡片 3：小朋友C 群組
-                    _buildChatCard(
-                      letter: 'C',
-                      avatarBgColor: const Color(0xFF00B7D4),
-                      title: '小朋友C 群組',
-                      tag: '黃俊豪',
-                      message: '我：好的，感謝老師！',
-                      time: '09:30',
-                      badgeCount: 1,
-                      isHighlight: true,
-                      isMessageBold: true,
-                    ),
                     SizedBox(height: 20.h),
                   ],
                 ),

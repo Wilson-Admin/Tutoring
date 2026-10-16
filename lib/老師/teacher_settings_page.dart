@@ -276,7 +276,6 @@ class _TeacherSettingsPageState extends State<TeacherSettingsPage> {
   }
 
   /// 跳轉至橫向手寫簽名頁
-  /// 跳轉至橫向手寫簽名頁
   Future<void> _openSignaturePage() async {
     final Uint8List? signatureResult = await Navigator.push(
       context,
@@ -563,17 +562,33 @@ class _TeacherSettingsPageState extends State<TeacherSettingsPage> {
     );
 
     if (shouldLogout && mounted) {
+      // 1. 呼叫後端 API 移除 FCM Token
+      try {
+        await AuthService.deleteFcmToken(
+          userNo: _userNo,
+          xApiKey: _xApiKey,
+          roleCode: _roleCode,
+        );
+      } catch (e) {
+        debugPrint('[FCM] 登出移除 FCM 異常: $e');
+      }
+
       final prefs = await SharedPreferences.getInstance();
 
       final isRemembered = prefs.getBool('saved_remember_me') ?? false;
       final savedPhone = prefs.getString('saved_user_phone');
       final savedPassword = prefs.getString('saved_user_password');
 
+      // 2. 清除登入狀態與 Token（包含 FCM Token）
       await prefs.remove('token');
       await prefs.remove('user_token');
+      await prefs.remove('xApiKey');
+      await prefs.remove('x_api_key');
+      await prefs.remove('fcm_token');
       await prefs.setBool('is_logged_in', false);
       await prefs.remove('is_logged_in');
 
+      // 3. 保留「記住我」帳密
       if (isRemembered && savedPhone != null) {
         await prefs.setBool('saved_remember_me', true);
         await prefs.setString('saved_user_phone', savedPhone);
@@ -829,112 +844,74 @@ class _TeacherSettingsPageState extends State<TeacherSettingsPage> {
           ),
         ),
         SizedBox(height: 18.h),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            GestureDetector(
-              onTap: _showImagePickerModal,
-              child: Container(
-                width: 100.w,
-                height: 100.w,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFD5D5D5),
-                  shape: BoxShape.circle,
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    if (_localSelectedImage != null)
-                      Image.file(
-                        _localSelectedImage!,
-                        fit: BoxFit.cover,
-                      )
-                    else if (formattedUrl.isNotEmpty)
-                      Image.network(
-                        formattedUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Icon(
+        // 👈 【修改處】刪除了原右側「更換照片 / 刪除照片」按鈕區，大頭照置中，並加上長按刪除事件
+        Center(
+          child: Column(
+            children: [
+              GestureDetector(
+                onTap: _showImagePickerModal, // 點擊: 更換大頭照
+                onLongPress: _deletePhoto,     // 👈【修改處】長按: 跳出刪除確認 AppDialog
+                child: Container(
+                  width: 110.w,
+                  height: 110.w,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFD5D5D5),
+                    shape: BoxShape.circle,
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if (_localSelectedImage != null)
+                        Image.file(
+                          _localSelectedImage!,
+                          fit: BoxFit.cover,
+                        )
+                      else if (formattedUrl.isNotEmpty)
+                        Image.network(
+                          formattedUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Icon(
+                            Icons.add,
+                            size: 48.sp,
+                            color: Colors.white,
+                          ),
+                        )
+                      else
+                        Icon(
                           Icons.add,
                           size: 48.sp,
                           color: Colors.white,
                         ),
-                      )
-                    else
-                      Icon(
-                        Icons.add,
-                        size: 48.sp,
-                        color: Colors.white,
-                      ),
-                    if (_isUploadingPhoto)
-                      Container(
-                        color: Colors.black.withOpacity(0.4),
-                        child: Center(
-                          child: SizedBox(
-                            width: 24.w,
-                            height: 24.w,
-                            child: const CircularProgressIndicator(
-                              strokeWidth: 2.5,
-                              color: Colors.white,
+                      if (_isUploadingPhoto)
+                        Container(
+                          color: Colors.black.withOpacity(0.4),
+                          child: Center(
+                            child: SizedBox(
+                              width: 24.w,
+                              height: 24.w,
+                              child: const CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                color: Colors.white,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-            SizedBox(width: 24.w),
-            Container(
-              width: 120.w,
-              height: 94.h,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12.r),
-                border: Border.all(color: const Color(0xFFB0B0B0), width: 1.0),
+              SizedBox(height: 8.h),
+              Text(
+                '長按大頭照可刪除',
+                style: TextStyle(
+                  fontSize: 12.sp,
+                  color: const Color(0xFF757575),
+                  fontWeight: FontWeight.w500,
+                ),
               ),
-              clipBehavior: Clip.antiAlias,
-              child: Column(
-                children: [
-                  Expanded(
-                    child: Material(
-                      color: const Color(0xFF1B2D4A),
-                      child: InkWell(
-                        onTap: _showImagePickerModal,
-                        child: Center(
-                          child: Text(
-                            '更換照片',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16.sp,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: Material(
-                      color: const Color(0xFFBDBDBD),
-                      child: InkWell(
-                        onTap: _deletePhoto,
-                        child: Center(
-                          child: Text(
-                            '刪除照片',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16.sp,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
         SizedBox(height: 32.h),
 
@@ -1104,51 +1081,56 @@ class _TeacherSettingsPageState extends State<TeacherSettingsPage> {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        Container(
-                          width: 72.w,
-                          height: 72.w,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFFD5D5D5),
-                            shape: BoxShape.circle,
-                          ),
-                          clipBehavior: Clip.antiAlias,
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              if (_localSelectedImage != null)
-                                Image.file(
-                                  _localSelectedImage!,
-                                  fit: BoxFit.cover,
-                                )
-                              else if (formattedUrl.isNotEmpty)
-                                Image.network(
-                                  formattedUrl,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => Container(
+                        // 👈 【修改處】將個人資訊 tab 的大頭貼亦加上 onLongPress 長按刪除與點擊拍照更換功能，提供一致體驗
+                        GestureDetector(
+                          onTap: _showImagePickerModal,
+                          onLongPress: _deletePhoto,
+                          child: Container(
+                            width: 72.w,
+                            height: 72.w,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFD5D5D5),
+                              shape: BoxShape.circle,
+                            ),
+                            clipBehavior: Clip.antiAlias,
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                if (_localSelectedImage != null)
+                                  Image.file(
+                                    _localSelectedImage!,
+                                    fit: BoxFit.cover,
+                                  )
+                                else if (formattedUrl.isNotEmpty)
+                                  Image.network(
+                                    formattedUrl,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => Container(
+                                      color: const Color(0xFFD5D5D5),
+                                      child: Icon(Icons.person, size: 40.sp, color: Colors.white),
+                                    ),
+                                  )
+                                else
+                                  Container(
                                     color: const Color(0xFFD5D5D5),
                                     child: Icon(Icons.person, size: 40.sp, color: Colors.white),
                                   ),
-                                )
-                              else
-                                Container(
-                                  color: const Color(0xFFD5D5D5),
-                                  child: Icon(Icons.person, size: 40.sp, color: Colors.white),
-                                ),
-                              if (_isUploadingPhoto)
-                                Container(
-                                  color: Colors.black.withOpacity(0.4),
-                                  child: Center(
-                                    child: SizedBox(
-                                      width: 24.w,
-                                      height: 24.w,
-                                      child: const CircularProgressIndicator(
-                                        strokeWidth: 2.5,
-                                        color: Colors.white,
+                                if (_isUploadingPhoto)
+                                  Container(
+                                    color: Colors.black.withOpacity(0.4),
+                                    child: Center(
+                                      child: SizedBox(
+                                        width: 24.w,
+                                        height: 24.w,
+                                        child: const CircularProgressIndicator(
+                                          strokeWidth: 2.5,
+                                          color: Colors.white,
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                            ],
+                              ],
+                            ),
                           ),
                         )
                       ],

@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil_plus/flutter_screenutil_plus.dart';
+import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tutoring/API/auth_service.dart';
@@ -10,7 +12,7 @@ import 'package:tutoring/main.dart';
 import 'package:tutoring/登入/LoginPage.dart';
 
 import '../共用函式/app_dialog.dart';
-import '../共用函式/app_signature_page.dart'; // 👈 匯入共用手寫簽名頁面
+import '../共用函式/app_signature_page.dart';
 
 class ParentSettingsPage extends StatefulWidget {
   const ParentSettingsPage({super.key});
@@ -20,7 +22,7 @@ class ParentSettingsPage extends StatefulWidget {
 }
 
 class _ParentSettingsPageState extends State<ParentSettingsPage> {
-  int _tabIndex = 0; // 0: 帳號相關, 1: 個人資訊
+  int _tabIndex = 0; // 0: 帳號相關, 1: 個人資訊[cite: 18]
 
   final TextEditingController _accountController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
@@ -34,7 +36,7 @@ class _ParentSettingsPageState extends State<ParentSettingsPage> {
   String _picLink = '';
   String _signLink = '';
   String _xApiKey = '';
-  String _roleCode = 'P'; // 家長端預設為 'P'
+  String _roleCode = 'P'; // 家長端預設為 'P'[cite: 18]
 
   File? _localSelectedImage;
   Uint8List? _newSignatureBytes;
@@ -42,7 +44,13 @@ class _ParentSettingsPageState extends State<ParentSettingsPage> {
 
   bool _isUploadingPhoto = false;
   bool _isSaving = false;
-  bool _isTestingFcm = false; // 👈 測試推播中狀態
+  bool _isTestingFcm = false;
+
+  // 學生列表動態資料
+  List<Map<String, dynamic>> _students = [];
+  Map<String, String> _schoolMap = {};
+  Map<String, Map<String, dynamic>> _courseMap = {};
+  bool _isLoadingStudents = false;
 
   final ImagePicker _picker = ImagePicker();
 
@@ -63,6 +71,71 @@ class _ParentSettingsPageState extends State<ParentSettingsPage> {
 
       _accountController.text = _userNo;
     });
+
+    // 取得家長所屬學生清單
+    _fetchStudents();
+  }
+
+  /// 取得學生列表 API (GET /api/tutoring/students)
+  Future<void> _fetchStudents() async {
+    if (_userNo.isEmpty) return;
+
+    setState(() {
+      _isLoadingStudents = true;
+    });
+
+    try {
+      final url = '${AuthService.baseUrl}/api/tutoring/students';
+      final response = await http
+          .get(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${AuthService.commonToken}',
+          'X-API-Key': _xApiKey,
+          'X-User-No': _userNo,
+          'X-Role-Code': _roleCode,
+        },
+      )
+          .timeout(const Duration(seconds: 15));
+
+      final dynamic decoded = jsonDecode(utf8.decode(response.bodyBytes));
+
+      if (decoded is Map<String, dynamic> && decoded['success'] == true) {
+        final data = decoded['data'];
+        if (data is Map<String, dynamic>) {
+          final items = (data['items'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? [];
+          final schools = (data['schools'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? [];
+          final courses = (data['courses'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? [];
+
+          final schoolMap = <String, String>{};
+          for (final s in schools) {
+            schoolMap['${s['depmNo']}'] = '${s['depmNm']}';
+          }
+
+          final courseMap = <String, Map<String, dynamic>>{};
+          for (final c in courses) {
+            courseMap['${c['courseNo']}'] = c;
+          }
+
+          if (mounted) {
+            setState(() {
+              _students = items;
+              _schoolMap = schoolMap;
+              _courseMap = courseMap;
+            });
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[Students] 取得學生列表發生異常: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingStudents = false;
+        });
+      }
+    }
   }
 
   String _formatImageUrl(String rawLink) {
@@ -199,7 +272,7 @@ class _ParentSettingsPageState extends State<ParentSettingsPage> {
 
     final confirm = await AppDialog.showConfirm(
       context: context,
-      title: '刪除照片',
+      title: '刪除大頭照',
       message: '確定要刪除大頭照嗎？',
       confirmText: '確定',
       cancelText: '取消',
@@ -259,7 +332,7 @@ class _ParentSettingsPageState extends State<ParentSettingsPage> {
     }
   }
 
-  // ==================== 簽名跳轉（改呼共用簽名） ====================
+  // ==================== 簽名跳轉 ====================
   Future<void> _openSignaturePage() async {
     final Uint8List? signatureResult = await Navigator.push(
       context,
@@ -276,7 +349,7 @@ class _ParentSettingsPageState extends State<ParentSettingsPage> {
     }
   }
 
-  // ==================== 測試推播（比照老師端） ====================
+  // ==================== 測試推播 ====================
   Future<void> _handleTestFcm() async {
     if (_isTestingFcm) return;
 
@@ -336,7 +409,7 @@ class _ParentSettingsPageState extends State<ParentSettingsPage> {
     }
   }
 
-  // ==================== 儲存設定（包含密碼、簽名與 FCM） ====================
+  // ==================== 儲存設定 ====================
   Future<void> _handleSaveSettings() async {
     if (_isSaving) return;
 
@@ -528,17 +601,33 @@ class _ParentSettingsPageState extends State<ParentSettingsPage> {
     );
 
     if (shouldLogout && mounted) {
+      // 1. 呼叫後端 API 移除 FCM Token
+      try {
+        await AuthService.deleteFcmToken(
+          userNo: _userNo,
+          xApiKey: _xApiKey,
+          roleCode: _roleCode,
+        );
+      } catch (e) {
+        debugPrint('[FCM] 登出移除 FCM 異常: $e');
+      }
+
       final prefs = await SharedPreferences.getInstance();
 
       final isRemembered = prefs.getBool('saved_remember_me') ?? false;
       final savedPhone = prefs.getString('saved_user_phone');
       final savedPassword = prefs.getString('saved_user_password');
 
+      // 2. 清除登入狀態與 Token
       await prefs.remove('token');
       await prefs.remove('user_token');
+      await prefs.remove('xApiKey');
+      await prefs.remove('x_api_key');
+      await prefs.remove('fcm_token');
       await prefs.setBool('is_logged_in', false);
       await prefs.remove('is_logged_in');
 
+      // 3. 保留「記住我」帳密
       if (isRemembered && savedPhone != null) {
         await prefs.setBool('saved_remember_me', true);
         await prefs.setString('saved_user_phone', savedPhone);
@@ -645,6 +734,9 @@ class _ParentSettingsPageState extends State<ParentSettingsPage> {
           setState(() {
             _tabIndex = index;
           });
+          if (index == 1 && _students.isEmpty) {
+            _fetchStudents();
+          }
         },
         child: Ink(
           height: 48.h,
@@ -776,116 +868,78 @@ class _ParentSettingsPageState extends State<ParentSettingsPage> {
           ),
         ),
         SizedBox(height: 18.h),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            GestureDetector(
-              onTap: _showImagePickerModal,
-              child: Container(
-                width: 100.w,
-                height: 100.w,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFD5D5D5),
-                  shape: BoxShape.circle,
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    if (_localSelectedImage != null)
-                      Image.file(
-                        _localSelectedImage!,
-                        fit: BoxFit.cover,
-                      )
-                    else if (formattedUrl.isNotEmpty)
-                      Image.network(
-                        formattedUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Icon(
+        // 👈 置中並支援長按刪除大頭照確認
+        Center(
+          child: Column(
+            children: [
+              GestureDetector(
+                onTap: _showImagePickerModal,
+                onLongPress: _deletePhoto,
+                child: Container(
+                  width: 110.w,
+                  height: 110.w,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFD5D5D5),
+                    shape: BoxShape.circle,
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if (_localSelectedImage != null)
+                        Image.file(
+                          _localSelectedImage!,
+                          fit: BoxFit.cover,
+                        )
+                      else if (formattedUrl.isNotEmpty)
+                        Image.network(
+                          formattedUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Icon(
+                            Icons.add,
+                            size: 48.sp,
+                            color: Colors.white,
+                          ),
+                        )
+                      else
+                        Icon(
                           Icons.add,
                           size: 48.sp,
                           color: Colors.white,
                         ),
-                      )
-                    else
-                      Icon(
-                        Icons.add,
-                        size: 48.sp,
-                        color: Colors.white,
-                      ),
-                    if (_isUploadingPhoto)
-                      Container(
-                        color: Colors.black.withOpacity(0.4),
-                        child: Center(
-                          child: SizedBox(
-                            width: 24.w,
-                            height: 24.w,
-                            child: const CircularProgressIndicator(
-                              strokeWidth: 2.5,
-                              color: Colors.white,
+                      if (_isUploadingPhoto)
+                        Container(
+                          color: Colors.black.withOpacity(0.4),
+                          child: Center(
+                            child: SizedBox(
+                              width: 24.w,
+                              height: 24.w,
+                              child: const CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                color: Colors.white,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-            SizedBox(width: 24.w),
-            Container(
-              width: 120.w,
-              height: 94.h,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12.r),
-                border: Border.all(color: const Color(0xFFB0B0B0), width: 1.0),
+              SizedBox(height: 8.h),
+              Text(
+                '長按大頭照可刪除',
+                style: TextStyle(
+                  fontSize: 12.sp,
+                  color: const Color(0xFF757575),
+                  fontWeight: FontWeight.w500,
+                ),
               ),
-              clipBehavior: Clip.antiAlias,
-              child: Column(
-                children: [
-                  Expanded(
-                    child: Material(
-                      color: const Color(0xFF1B2D4A),
-                      child: InkWell(
-                        onTap: _showImagePickerModal,
-                        child: Center(
-                          child: Text(
-                            '更換照片',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16.sp,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: Material(
-                      color: const Color(0xFFBDBDBD),
-                      child: InkWell(
-                        onTap: _deletePhoto,
-                        child: Center(
-                          child: Text(
-                            '刪除照片',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16.sp,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
         SizedBox(height: 32.h),
 
-        // ─── 測試推播按鈕（比照老師端） ───
+        // ─── 測試推播按鈕 ───
         OutlinedButton.icon(
           onPressed: _isTestingFcm ? null : _handleTestFcm,
           style: OutlinedButton.styleFrom(
@@ -970,141 +1024,196 @@ class _ParentSettingsPageState extends State<ParentSettingsPage> {
     );
   }
 
-  // ==================== 2. 個人資訊 ====================
+  // ==================== 2. 個人資訊（紅框處：動態顯示學生列表） ====================
   Widget _buildProfileTab() {
+    if (_isLoadingStudents) {
+      return Padding(
+        padding: EdgeInsets.symmetric(vertical: 40.h),
+        child: const Center(
+          child: CircularProgressIndicator(color: Color(0xFF00B074)),
+        ),
+      );
+    }
+
+    if (_students.isEmpty) {
+      return Padding(
+        padding: EdgeInsets.symmetric(vertical: 40.h),
+        child: Center(
+          child: Text(
+            '尚未綁定學生資料',
+            style: TextStyle(fontSize: 15.sp, color: const Color(0xFF9E9E9E)),
+          ),
+        ),
+      );
+    }
+
     return Column(
       children: [
-        _buildStudentCard(
-          name: '王小明',
-          schoolInfo: '文元國小3年7班',
-          teachers: [
-            {'subject': '課輔', 'name': '王怡君 老師', 'color': const Color(0xFF60A5FA)},
-            {'subject': '美語', 'name': '陳怡君 老師', 'color': const Color(0xFFFBBF24)},
-            {'subject': '數學', 'name': '林怡君 老師', 'color': const Color(0xFF60A5FA)},
-            {'subject': '作文', 'name': '黃怡君 老師', 'color': const Color(0xFFFBBF24)},
-          ],
-        ),
-        SizedBox(height: 16.h),
-        _buildStudentCard(
-          name: '王小華',
-          schoolInfo: '文元國小1年5班',
-          teachers: [
-            {'subject': '課輔', 'name': '王怡君 老師', 'color': const Color(0xFF60A5FA)},
-            {'subject': '美語', 'name': '陳怡君 老師', 'color': const Color(0xFFFBBF24)},
-            {'subject': '國文', 'name': '林怡君 老師', 'color': const Color(0xFF60A5FA)},
-            {'subject': '作文', 'name': '黃怡君 老師', 'color': const Color(0xFFFBBF24)},
-          ],
-        ),
+        ..._students.map((student) {
+          final studentName = student['csNm']?.toString() ?? '';
+          final classNm = student['classNm']?.toString() ?? '';
+          final depmNo = student['depmNo']?.toString() ?? '';
+          final schoolNm = _schoolMap[depmNo] ?? '';
+          final schoolInfo = schoolNm.isNotEmpty ? '$schoolNm $classNm' : classNm;
+          final picLink = student['studentPicLink']?.toString() ?? '';
+          final courseNos = (student['courseNos'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+              [];
+
+          final studentCourses = courseNos
+              .map((no) => _courseMap[no])
+              .whereType<Map<String, dynamic>>()
+              .toList();
+
+          return Padding(
+            padding: EdgeInsets.only(bottom: 16.h),
+            child: _buildStudentCardItem(
+              studentName: studentName,
+              schoolInfo: schoolInfo,
+              picLink: picLink,
+              courses: studentCourses,
+            ),
+          );
+        }),
         SizedBox(height: 24.h),
       ],
     );
   }
 
-  Widget _buildStudentCard({
-    required String name,
+  Widget _buildStudentCardItem({
+    required String studentName,
     required String schoolInfo,
-    required List<Map<String, dynamic>> teachers,
+    required String picLink,
+    required List<Map<String, dynamic>> courses,
   }) {
+    final avatarUrl = _formatImageUrl(picLink);
+
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16.r),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        border: Border.all(color: const Color(0xFF757575), width: 1.0),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: EdgeInsets.all(16.w),
+            padding: EdgeInsets.fromLTRB(18.w, 16.h, 18.w, 18.h),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // 左側：學生頭像、姓名、校區班級與橫線
                 Expanded(
+                  flex: 11,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Container(
-                        width: 54.w,
-                        height: 54.w,
+                        width: 60.w,
+                        height: 60.w,
                         decoration: const BoxDecoration(
-                          color: Color(0xFFD9D9D9),
+                          color: Color(0xFFD5D5D5),
                           shape: BoxShape.circle,
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: avatarUrl.isNotEmpty
+                            ? Image.network(
+                          avatarUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Icon(
+                            Icons.person,
+                            size: 38.sp,
+                            color: Colors.white,
+                          ),
+                        )
+                            : Icon(
+                          Icons.person,
+                          size: 38.sp,
+                          color: Colors.white,
                         ),
                       ),
                       SizedBox(height: 12.h),
                       Text(
-                        name,
+                        studentName,
                         style: TextStyle(
-                          fontSize: 18.sp,
-                          fontWeight: FontWeight.bold,
-                          color: const Color(0xFF1E1E1E),
+                          fontSize: 22.sp,
+                          fontWeight: FontWeight.w900,
+                          color: const Color(0xFF212121),
                         ),
                       ),
                       SizedBox(height: 4.h),
                       Text(
-                        '| $schoolInfo',
-                        style: TextStyle(fontSize: 12.sp, color: const Color(0xFF9E9E9E)),
+                        schoolInfo.trim().isEmpty ? '' : '| $schoolInfo',
+                        style: TextStyle(
+                          fontSize: 13.sp,
+                          color: const Color(0xFF757575),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      SizedBox(height: 8.h),
+                      Container(
+                        height: 1.5.h,
+                        width: 140.w,
+                        color: const Color(0xFF90CAF9),
                       ),
                     ],
                   ),
                 ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Container(
-                      padding: EdgeInsets.all(4.r),
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFF0F2F5),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(Icons.edit, size: 14.sp, color: const Color(0xFF757575)),
-                    ),
-                    SizedBox(height: 12.h),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: teachers.map((item) {
-                        return Padding(
-                          padding: EdgeInsets.only(bottom: 6.h),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                width: 8.w,
-                                height: 8.w,
-                                color: item['color'] as Color,
+                SizedBox(width: 10.w),
+                // 右側：授課科目與教師清單
+                Expanded(
+                  flex: 10,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: courses.asMap().entries.map((entry) {
+                      final idx = entry.key;
+                      final course = entry.value;
+                      final courseNm = course['courseNm']?.toString() ?? '';
+                      final teacherNm = course['teacherNm']?.toString() ?? '';
+                      final color = idx % 2 == 0
+                          ? const Color(0xFF6BB8FF)
+                          : const Color(0xFFE5B839);
+
+                      return Padding(
+                        padding: EdgeInsets.only(bottom: 8.h),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 12.w,
+                              height: 12.w,
+                              color: color,
+                            ),
+                            SizedBox(width: 8.w),
+                            Expanded(
+                              child: Text(
+                                '$courseNm $teacherNm',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 13.sp,
+                                  color: const Color(0xFF616161),
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
-                              SizedBox(width: 6.w),
-                              Text(
-                                '${item['subject']} ${item['name']}',
-                                style: TextStyle(fontSize: 11.sp, color: const Color(0xFF616161)),
-                              ),
-                            ],
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ],
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
                 ),
               ],
             ),
           ),
-          Row(
-            children: [
-              Expanded(
-                flex: 7,
-                child: Container(height: 4.h, color: const Color(0xFF60A5FA)),
-              ),
-              Expanded(
-                flex: 4,
-                child: Container(height: 4.h, color: const Color(0xFFFBBF24)),
-              ),
-            ],
+          // 卡片底部藍黃雙色斜角切線
+          SizedBox(
+            height: 6.h,
+            width: double.infinity,
+            child: CustomPaint(
+              painter: _CardBottomBarPainter(),
+            ),
           ),
         ],
       ),
@@ -1168,4 +1277,37 @@ class _ParentSettingsPageState extends State<ParentSettingsPage> {
       ),
     );
   }
+}
+
+class _CardBottomBarPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    const blueColor = Color(0xFF6BB8FF);
+    const yellowColor = Color(0xFFE5B839);
+
+    final bluePaint = Paint()..color = blueColor;
+    final yellowPaint = Paint()..color = yellowColor;
+
+    final splitX = size.width * 0.55;
+    final slantWidth = size.height * 1.5;
+
+    final bluePath = Path()
+      ..moveTo(0, 0)
+      ..lineTo(splitX + slantWidth, 0)
+      ..lineTo(splitX, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(bluePath, bluePaint);
+
+    final yellowPath = Path()
+      ..moveTo(splitX + slantWidth + 2, 0)
+      ..lineTo(size.width, 0)
+      ..lineTo(size.width, size.height)
+      ..lineTo(splitX + 2, size.height)
+      ..close();
+    canvas.drawPath(yellowPath, yellowPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

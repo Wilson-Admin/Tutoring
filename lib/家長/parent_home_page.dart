@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil_plus/flutter_screenutil_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../API/auth_service.dart';
+import '../資料結構/ChatListResponse.dart';
+import '../資料結構/Structures.dart';
+import '../資料結構/StudentListResponse.dart';
 import 'parent_chat_page.dart';
 import 'parent_notification_page.dart';
 import 'parent_settings_page.dart';
@@ -14,7 +19,79 @@ class ParentHomePage extends StatefulWidget {
 }
 
 class _ParentHomePageState extends State<ParentHomePage> {
-  int _currentIndex = 2; // 預設選中 2: 學生管理 (首頁)
+  int _currentIndex = 2; // 預設 2: 學生管理首頁[cite: 24]
+  List<StudentItem> _students = [];
+  int _selectedStudentIndex = 0;
+  bool _isLoadingStudents = false;
+  int _unreadChatTotal = 0; // 👈 儲存未讀聊天室訊息總數 (unreadTotal)
+
+  final List<Map<String, Color>> _pillColors = [
+    {'bg': const Color(0xFF7079FB), 'text': Colors.white},
+    {'bg': const Color(0xFFDDF5EB), 'text': const Color(0xFF00875A)},
+    {'bg': const Color(0xFFFEF2D6), 'text': const Color(0xFFC78300)},
+    {'bg': const Color(0xFFFFECEE), 'text': const Color(0xFFFF5A60)},
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchInitialData();
+  }
+
+  /// 同時載入學生列表與聊天室未讀總數
+  Future<void> _fetchInitialData() async {
+    await Future.wait([
+      _fetchStudents(),
+      _fetchChatUnreadTotal(),
+    ]);
+  }
+
+  Future<void> _fetchStudents() async {
+    setState(() => _isLoadingStudents = true);
+    final prefs = await SharedPreferences.getInstance();
+    final userNo = prefs.getString('user_no') ?? '';
+    final xApiKey = prefs.getString('x_api_key') ?? prefs.getString('xApiKey') ?? '';
+    final roleCode = prefs.getString('role_code') ?? 'P';
+
+    final res = await AuthService.getStudents(
+      userNo: userNo,
+      xApiKey: xApiKey,
+      roleCode: roleCode,
+    );
+
+    if (mounted) {
+      setState(() {
+        _isLoadingStudents = false;
+        if (res.success && res.data != null) {
+          _students = res.data!.items;
+        }
+      });
+    }
+  }
+
+  /// 呼叫聊天室 API 取得 unreadTotal
+  Future<void> _fetchChatUnreadTotal() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userNo = prefs.getString('user_no') ?? '';
+      final xApiKey = prefs.getString('x_api_key') ?? prefs.getString('xApiKey') ?? '';
+      final roleCode = prefs.getString('role_code') ?? 'P';
+
+      final res = await AuthService.getChats(
+        userNo: userNo,
+        xApiKey: xApiKey,
+        roleCode: roleCode,
+      );
+
+      if (mounted && res.success && res.data != null) {
+        setState(() {
+          _unreadChatTotal = res.data!.unreadTotal;
+        });
+      }
+    } catch (e) {
+      debugPrint('[Home] 取得聊天室未讀數量異常: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -32,15 +109,20 @@ class _ParentHomePageState extends State<ParentHomePage> {
                 child: IndexedStack(
                   index: _currentIndex,
                   children: [
-                    const ParentNotificationPage(), // index 0: 通知中心
-                    const ParentChatPage(),         // index 1: 聊天室 (聯絡互動)
-                    _buildHomeDashboard(),          // index 2: 學生管理 / 儀表板首頁
-                    const Center(child: Text('學習中心頁面')), // index 3
-                    const ParentSettingsPage(),     // index 4: 設定頁
+                    const ParentNotificationPage(),
+                    ParentChatPage(
+                      onUnreadChanged: (total) {
+                        setState(() {
+                          _unreadChatTotal = total;
+                        });
+                      },
+                    ),
+                    _buildHomeDashboard(),
+                    const Center(child: Text('學習中心頁面')),
+                    const ParentSettingsPage(),
                   ],
                 ),
               ),
-              // 底部常駐導航列
               _buildBottomNav(activeIndex: _currentIndex),
             ],
           ),
@@ -49,8 +131,11 @@ class _ParentHomePageState extends State<ParentHomePage> {
     );
   }
 
-  /// 首頁儀表板
   Widget _buildHomeDashboard() {
+    final currentStudentName = _students.isNotEmpty && _selectedStudentIndex < _students.length
+        ? _students[_selectedStudentIndex].csNm
+        : '';
+
     return SingleChildScrollView(
       physics: const ClampingScrollPhysics(),
       padding: EdgeInsets.symmetric(horizontal: 20.w),
@@ -58,7 +143,6 @@ class _ParentHomePageState extends State<ParentHomePage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(height: 16.h),
-          // 標題問候
           Row(
             children: [
               Text(
@@ -74,12 +158,11 @@ class _ParentHomePageState extends State<ParentHomePage> {
             ],
           ),
           SizedBox(height: 14.h),
-          // 狀態標籤列
           Row(
             children: [
               _buildStatusBadge(
                 icon: Icons.check_box,
-                text: '王小明 · 今日到校',
+                text: currentStudentName.isNotEmpty ? '$currentStudentName · 今日到校' : '今日到校',
                 bgColor: const Color(0xFFD8F3E5),
                 textColor: const Color(0xFF00875A),
                 iconColor: const Color(0xFF00A36C),
@@ -95,17 +178,43 @@ class _ParentHomePageState extends State<ParentHomePage> {
             ],
           ),
           SizedBox(height: 14.h),
-          // 學生切換膠囊
-          Row(
-            children: [
-              _buildStudentPill('王小明', isSelected: true, bgColor: const Color(0xFF7079FB), textColor: Colors.white),
-              SizedBox(width: 10.w),
-              _buildStudentPill('王小華', isSelected: false, bgColor: const Color(0xFFDDF5EB), textColor: const Color(0xFF00875A)),
-              SizedBox(width: 10.w),
-              _buildStudentPill('王小美', isSelected: false, bgColor: const Color(0xFFFEF2D6), textColor: const Color(0xFFC78300)),
-            ],
-          ),
+
+          // 學生切換膠囊列表
+          if (_isLoadingStudents)
+            Padding(
+              padding: EdgeInsets.symmetric(vertical: 8.h),
+              child: const Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+            )
+          else if (_students.isNotEmpty)
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: List.generate(_students.length, (index) {
+                  final student = _students[index];
+                  final isSelected = _selectedStudentIndex == index;
+                  final colorTheme = _pillColors[index % _pillColors.length];
+
+                  return Padding(
+                    padding: EdgeInsets.only(right: 10.w),
+                    child: GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _selectedStudentIndex = index;
+                        });
+                      },
+                      child: _buildStudentPill(
+                        student.csNm,
+                        isSelected: isSelected,
+                        bgColor: isSelected ? const Color(0xFF7079FB) : colorTheme['bg']!,
+                        textColor: isSelected ? Colors.white : colorTheme['text']!,
+                      ),
+                    ),
+                  );
+                }),
+              ),
+            ),
           SizedBox(height: 22.h),
+
           // 最新公告
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -120,8 +229,6 @@ class _ParentHomePageState extends State<ParentHomePage> {
             ],
           ),
           SizedBox(height: 12.h),
-
-          // 💡 關鍵修正：列表高度使用 .w 等比（140.w），在 iPad 與 iPhone 保持一致比例，杜絕高低失衡
           SizedBox(
             height: 140.w,
             child: ListView(
@@ -229,9 +336,8 @@ class _ParentHomePageState extends State<ParentHomePage> {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween, // 均勻分配，不使用硬性 Spacer
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // 頂部圖示與標籤
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -254,8 +360,6 @@ class _ParentHomePageState extends State<ParentHomePage> {
                 ),
             ],
           ),
-
-          // 標題與日期緊湊排列
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
@@ -350,6 +454,11 @@ class _ParentHomePageState extends State<ParentHomePage> {
   Widget _buildBottomNav({required int activeIndex}) {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
 
+    // 將未讀聊天室數量轉為文字（大於 99 顯示 99+，為 0 則不顯示）
+    final chatBadgeText = _unreadChatTotal > 0
+        ? (_unreadChatTotal > 99 ? '99+' : _unreadChatTotal.toString())
+        : null;
+
     return Container(
       padding: EdgeInsets.only(
         top: 8.h,
@@ -363,7 +472,13 @@ class _ParentHomePageState extends State<ParentHomePage> {
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
           _buildNavItem(Icons.notifications_none, '通知', 0, badge: '3', isActive: activeIndex == 0),
-          _buildNavItem(Icons.chat_bubble_outline, '聊天室', 1, badge: '2', isActive: activeIndex == 1),
+          _buildNavItem(
+            Icons.chat_bubble_outline,
+            '聊天室',
+            1,
+            badge: chatBadgeText, // 👈 動態綁定 API 回傳的 unreadTotal
+            isActive: activeIndex == 1,
+          ),
           _buildNavItem(Icons.school, '學生管理', 2, isActive: activeIndex == 2),
           _buildNavItem(Icons.menu_book, '學習中心', 3, isActive: activeIndex == 3),
           _buildNavItem(Icons.settings_outlined, '設定', 4, isActive: activeIndex == 4),
@@ -393,13 +508,24 @@ class _ParentHomePageState extends State<ParentHomePage> {
           ),
           if (badge != null)
             Positioned(
-              right: -4,
-              top: -2,
+              right: -6,
+              top: -3,
               child: Container(
-                padding: EdgeInsets.all(3.r),
-                decoration: const BoxDecoration(color: Color(0xFFFF5252), shape: BoxShape.circle),
-                constraints: BoxConstraints(minWidth: 14.w, minHeight: 14.w),
-                child: Text(badge, textAlign: TextAlign.center, style: TextStyle(fontSize: 9.sp, color: Colors.white, fontWeight: FontWeight.bold)),
+                padding: EdgeInsets.symmetric(horizontal: 4.w, vertical: 2.h),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFF4D4F),
+                  borderRadius: BorderRadius.circular(10.r),
+                ),
+                constraints: BoxConstraints(minWidth: 16.w, minHeight: 16.w),
+                child: Text(
+                  badge,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 9.sp,
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
             ),
         ],

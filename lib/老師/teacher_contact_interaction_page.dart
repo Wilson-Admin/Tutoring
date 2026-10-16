@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil_plus/flutter_screenutil_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../API/auth_service.dart';
+import '../資料結構/ChatListResponse.dart';
 
 class TeacherContactInteractionPage extends StatefulWidget {
-  const TeacherContactInteractionPage({super.key});
+  final ValueChanged<int>? onUnreadChanged; // 👈 支援回呼通知未讀總數變更[cite: 28]
+
+  const TeacherContactInteractionPage({super.key, this.onUnreadChanged});
 
   @override
   State<TeacherContactInteractionPage> createState() =>
@@ -11,11 +16,82 @@ class TeacherContactInteractionPage extends StatefulWidget {
 
 class _TeacherContactInteractionPageState
     extends State<TeacherContactInteractionPage> {
-  int _selectedCampusIndex = 0; // 0: 全部, 1: 輔威校, 2: 華森校, 3: 五王校
-  final List<String> _campuses = ['全部', '輔威校', '華森校', '五王校'];
+  int _selectedCampusIndex = 0; // 0: 全部[cite: 28]
+  bool _isLoading = false;
+
+  List<SchoolInfo> _schools = [];
+  List<ChatItem> _allChats = [];
+
+  final List<Color> _campusColors = [
+    const Color(0xFF5E60CE), // 紫色系[cite: 28]
+    const Color(0xFF00B074), // 綠色系[cite: 28]
+    const Color(0xFFF59E0B), // 橘黃色系[cite: 28]
+    const Color(0xFF3B82F6), // 藍色系[cite: 28]
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchChatList();
+  }
+
+  Future<void> _fetchChatList() async {
+    setState(() => _isLoading = true);
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userNo = prefs.getString('user_no') ?? '';
+      final xApiKey = prefs.getString('x_api_key') ?? prefs.getString('xApiKey') ?? '';
+      final roleCode = prefs.getString('role_code') ?? 'T';
+
+      final res = await AuthService.getChats(
+        userNo: userNo,
+        xApiKey: xApiKey,
+        roleCode: roleCode,
+      );
+
+      if (!mounted) return;
+
+      if (res.success && res.data != null) {
+        setState(() {
+          _schools = res.data!.schools;
+          _allChats = res.data!.chats;
+        });
+        // 👈 回呼通知首頁更新導航列未讀 Badge[cite: 28]
+        widget.onUnreadChanged?.call(res.data!.unreadTotal);
+      }
+    } catch (e) {
+      debugPrint('[Chat] 讀取聊天室清單失敗: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  String _formatTime(String rawTime) {
+    if (rawTime.isEmpty) return '';
+    try {
+      final dt = DateTime.parse(rawTime);
+      final now = DateTime.now();
+      if (dt.year == now.year && dt.month == now.month && dt.day == now.day) {
+        final hh = dt.hour.toString().padLeft(2, '0');
+        final mm = dt.minute.toString().padLeft(2, '0');
+        return '$hh:$mm';
+      }
+      return '${dt.month.toString().padLeft(2, '0')}/${dt.day.toString().padLeft(2, '0')}';
+    } catch (_) {
+      if (rawTime.length >= 16) {
+        return rawTime.substring(11, 16);
+      }
+      return rawTime;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final campusTabs = ['全部', ..._schools.map((s) => s.depmNm)];
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () => FocusScope.of(context).unfocus(),
@@ -33,44 +109,22 @@ class _TeacherContactInteractionPageState
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // 頂部返回箭頭與標題
-                    Row(
-                      children: [
-                        Container(
-                          width: 34.w,
-                          height: 34.w,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(10.r),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.04),
-                                blurRadius: 4,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: Icon(Icons.arrow_back_ios_new,
-                              size: 14.sp, color: const Color(0xFF616161)),
-                        ),
-                        SizedBox(width: 12.w),
-                        Text(
-                          '聯絡互動',
-                          style: TextStyle(
-                            fontSize: 22.sp,
-                            fontWeight: FontWeight.w900,
-                            color: const Color(0xFF1E1E1E),
-                          ),
-                        ),
-                      ],
+                    // 頂部標題（已移除返回鍵）
+                    Text(
+                      '聯絡互動',
+                      style: TextStyle(
+                        fontSize: 22.sp,
+                        fontWeight: FontWeight.w900,
+                        color: const Color(0xFF1E1E1E),
+                      ),
                     ),
                     SizedBox(height: 16.h),
 
-                    // 分校過濾標籤列
+                    // 動態分校過濾標籤列[cite: 28]
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: Row(
-                        children: List.generate(_campuses.length, (index) {
+                        children: List.generate(campusTabs.length, (index) {
                           final isSelected = _selectedCampusIndex == index;
                           return GestureDetector(
                             onTap: () => setState(() => _selectedCampusIndex = index),
@@ -91,7 +145,7 @@ class _TeacherContactInteractionPageState
                                 ],
                               ),
                               child: Text(
-                                _campuses[index],
+                                campusTabs[index],
                                 style: TextStyle(
                                   fontSize: 13.sp,
                                   fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
@@ -105,83 +159,26 @@ class _TeacherContactInteractionPageState
                     ),
                     SizedBox(height: 20.h),
 
-                    // 1. 輔威校 區塊
-                    if (_selectedCampusIndex == 0 || _selectedCampusIndex == 1) ...[
-                      _buildCampusHeader('輔威校', const Color(0xFF5E60CE)),
-                      SizedBox(height: 10.h),
-                      _buildChatCard(
-                        avatarColor: const Color(0xFF5E60CE),
-                        name: '學生A',
-                        members: '4位成員',
-                        message: '王小明媽媽：請問下週有考試嗎？',
-                        time: '09:41',
-                        badgeCount: 3,
-                        isHighlightBorder: true,
-                        borderColor: const Color(0xFFDCDAFE),
-                      ),
-                      SizedBox(height: 10.h),
-                      _buildChatCard(
-                        avatarColor: const Color(0xFF5E60CE),
-                        name: '學生B',
-                        members: '3 位成員',
-                        message: '我：課程通知已更新，請查看',
-                        time: '昨天',
-                        isMutedText: true,
-                      ),
-                      SizedBox(height: 10.h),
-                      _buildChatCard(
-                        avatarColor: const Color(0xFF5E60CE),
-                        name: '學生C',
-                        members: '3 位成員',
-                        message: '鄭家豪媽媽：老師辛苦了！',
-                        time: '10:02',
-                        badgeCount: 1,
-                        isHighlightBorder: true,
-                        borderColor: const Color(0xFFDCDAFE),
-                      ),
-                      SizedBox(height: 20.h),
-                    ],
-
-                    // 2. 華森校 區塊
-                    if (_selectedCampusIndex == 0 || _selectedCampusIndex == 2) ...[
-                      _buildCampusHeader('華森校', const Color(0xFF00B074)),
-                      SizedBox(height: 10.h),
-                      _buildChatCard(
-                        avatarColor: const Color(0xFF00B074),
-                        name: '學生1',
-                        members: '5 位成員',
-                        message: '我：作業請週五前上傳平台',
-                        time: '週二',
-                        isMutedText: true,
-                      ),
-                      SizedBox(height: 10.h),
-                      _buildChatCard(
-                        avatarColor: const Color(0xFF00B074),
-                        name: '學生2',
-                        members: '6 位成員',
-                        message: '蘇志遠爸爸：謝謝老師！',
-                        time: '11:15',
-                        badgeCount: 2,
-                        isHighlightBorder: true,
-                        borderColor: const Color(0xFFC7F3E2),
-                      ),
-                      SizedBox(height: 20.h),
-                    ],
-
-                    // 3. 五王校 區塊
-                    if (_selectedCampusIndex == 0 || _selectedCampusIndex == 3) ...[
-                      _buildCampusHeader('五王校', const Color(0xFFF59E0B)),
-                      SizedBox(height: 10.h),
-                      _buildChatCard(
-                        avatarColor: const Color(0xFFF59E0B),
-                        name: '學生ㄅ',
-                        members: '7 位成員',
-                        message: '我：期中口說考試時間公告',
-                        time: '週三',
-                        isMutedText: true,
-                      ),
-                      SizedBox(height: 20.h),
-                    ],
+                    // 聊天室內容區塊[cite: 28]
+                    if (_isLoading)
+                      Padding(
+                        padding: EdgeInsets.symmetric(vertical: 40.h),
+                        child: const Center(
+                          child: CircularProgressIndicator(color: Color(0xFF5E60CE)),
+                        ),
+                      )
+                    else if (_allChats.isEmpty)
+                      Padding(
+                        padding: EdgeInsets.symmetric(vertical: 40.h),
+                        child: Center(
+                          child: Text(
+                            '目前無任何對話訊息',
+                            style: TextStyle(fontSize: 14.sp, color: const Color(0xFF9E9E9E)),
+                          ),
+                        ),
+                      )
+                    else
+                      ..._buildCampusSections(),
                   ],
                 ),
               ),
@@ -192,7 +189,53 @@ class _TeacherContactInteractionPageState
     );
   }
 
-  /// 分校膠囊標題
+  /// 依據學校分組動態產生聊天室清單[cite: 28]
+  List<Widget> _buildCampusSections() {
+    final List<Widget> sections = [];
+
+    for (int i = 0; i < _schools.length; i++) {
+      final school = _schools[i];
+      final schoolIndexInTabs = i + 1;
+
+      // 若非全部且非選中分校，則不顯示[cite: 28]
+      if (_selectedCampusIndex != 0 && _selectedCampusIndex != schoolIndexInTabs) {
+        continue;
+      }
+
+      final chatsInSchool = _allChats.where((c) => c.depmNo == school.depmNo).toList();
+      if (chatsInSchool.isEmpty) continue;
+
+      final themeColor = _campusColors[i % _campusColors.length];
+
+      sections.add(_buildCampusHeader(school.depmNm, themeColor));
+      sections.add(SizedBox(height: 10.h));
+
+      for (final chat in chatsInSchool) {
+        sections.add(
+          Padding(
+            padding: EdgeInsets.only(bottom: 10.h),
+            child: _buildChatCard(
+              avatarColor: themeColor,
+              name: chat.studentNm,
+              members: chat.classNm,
+              message: chat.lastMessage,
+              time: _formatTime(chat.lastMessageAt),
+              badgeCount: chat.unreadCount,
+              isHighlightBorder: chat.unreadCount > 0,
+              borderColor: themeColor.withOpacity(0.3),
+              isMutedText: chat.unreadCount == 0,
+            ),
+          ),
+        );
+      }
+
+      sections.add(SizedBox(height: 16.h));
+    }
+
+    return sections;
+  }
+
+  /// 分校膠囊標題[cite: 28]
   Widget _buildCampusHeader(String title, Color color) {
     return Row(
       children: [
@@ -217,7 +260,7 @@ class _TeacherContactInteractionPageState
     );
   }
 
-  /// 對話列表卡片
+  /// 對話列表卡片[cite: 28]
   Widget _buildChatCard({
     required Color avatarColor,
     required String name,
@@ -273,7 +316,11 @@ class _TeacherContactInteractionPageState
                     child: Text(
                       badgeCount.toString(),
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 9.sp, color: Colors.white, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 9.sp,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ),
@@ -286,12 +333,19 @@ class _TeacherContactInteractionPageState
               children: [
                 Text(
                   name,
-                  style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.bold, color: const Color(0xFF1E1E1E)),
+                  style: TextStyle(
+                    fontSize: 14.sp,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF1E1E1E),
+                  ),
                 ),
                 SizedBox(height: 2.h),
                 Text(
                   members,
-                  style: TextStyle(fontSize: 10.sp, color: const Color(0xFF9E9E9E)),
+                  style: TextStyle(
+                    fontSize: 10.sp,
+                    color: const Color(0xFF9E9E9E),
+                  ),
                 ),
                 SizedBox(height: 4.h),
                 Text(

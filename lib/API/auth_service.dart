@@ -7,8 +7,11 @@ import 'package:http_parser/http_parser.dart';
 
 import '../共用函式/app_dialog.dart'; // 若 forceLogout 放置的檔案路徑不同請依實際位置調整
 import '../共用函式/app_utils.dart';
+import '../資料結構/ChatListResponse.dart';
 import '../資料結構/Structures.dart';
 import 'package:googleapis_auth/auth_io.dart' as auth;
+
+import '../資料結構/StudentListResponse.dart';
 
 class AuthService {
   static const String baseUrl = 'https://wilson-edu.com';
@@ -571,6 +574,174 @@ class AuthService {
     } catch (e, stack) {
       _log('====== [HTTP ERROR] 上傳簽名檔失敗 ======\nError: $e\n$stack');
       return {'success': false, 'msg': '上傳失敗，請檢查網路連線'};
+    }
+  }
+
+  /// 移除 FCM Token API (DELETE /api/tutoring/users/fcm)
+  static Future<Map<String, dynamic>> deleteFcmToken({
+    required String userNo,
+    required String xApiKey,
+    required String roleCode,
+  }) async {
+    final url = '$baseUrl/api/tutoring/users/fcm';
+    final headers = _buildHeaders(
+      xApiKey: xApiKey,
+      xUserNo: userNo,
+      xRoleCode: roleCode,
+    );
+
+    const encoder = JsonEncoder.withIndent('  ');
+
+    _log('====== [HTTP REQUEST] 移除 FCM Token ======\n'
+        'URL: $url\n'
+        'Method: DELETE\n'
+        'Headers:\n${encoder.convert(headers)}');
+
+    try {
+      final response = await http
+          .delete(
+        Uri.parse(url),
+        headers: headers,
+      )
+          .timeout(const Duration(seconds: 15));
+
+      final dynamic decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final prettyResponseBody = encoder.convert(decoded);
+
+      _log('====== [HTTP RESPONSE] 移除 FCM Token ======\n'
+          'Status Code: ${response.statusCode}\n'
+          'Body:\n$prettyResponseBody');
+
+      _handleAuthExpired(decoded);
+
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      } else {
+        return {
+          "success": false,
+          "msg": "伺服器回傳格式不正確",
+          "data": null,
+        };
+      }
+    } catch (e, stack) {
+      _log('====== [HTTP ERROR] 移除 FCM Token 異常 ======\n'
+          'Error: $e\n'
+          'StackTrace: $stack');
+      return {
+        "success": false,
+        "msg": "網路連線失敗，請檢查網路狀態或稍後再試。",
+        "data": null,
+      };
+    }
+  }
+
+  /// 取得家長所屬學生列表 (GET /api/tutoring/students)
+  static Future<StudentListResponse> getStudents({
+    required String userNo,
+    required String xApiKey,
+    required String roleCode,
+  }) async {
+    final url = '$baseUrl/api/tutoring/students';
+    final headers = _buildHeaders(
+      xApiKey: xApiKey,
+      xUserNo: userNo,
+      xRoleCode: roleCode,
+    );
+
+    const encoder = JsonEncoder.withIndent('  ');
+
+    _log('====== [HTTP REQUEST] 取得學生列表 ======\n'
+        'URL: $url\n'
+        'Method: GET\n'
+        'Headers:\n${encoder.convert(headers)}');
+
+    try {
+      final response = await http
+          .get(Uri.parse(url), headers: headers)
+          .timeout(const Duration(seconds: 15));
+
+      final dynamic decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final prettyResponseBody = encoder.convert(decoded);
+
+      _log('====== [HTTP RESPONSE] 取得學生列表 ======\n'
+          'Status Code: ${response.statusCode}\n'
+          'Body:\n$prettyResponseBody');
+
+      _handleAuthExpired(decoded);
+
+      if (decoded is Map<String, dynamic>) {
+        return StudentListResponse.fromJson(decoded);
+      } else {
+        return StudentListResponse(
+          success: false,
+          msg: '伺服器回傳格式不正確',
+          data: null,
+        );
+      }
+    } catch (e, stack) {
+      _log('====== [HTTP ERROR] 取得學生列表異常 ======\n'
+          'Error: $e\n'
+          'StackTrace: $stack');
+      return StudentListResponse(
+        success: false,
+        msg: '網路連線失敗，請檢查網路狀態或稍後再試。',
+        data: null,
+      );
+    }
+  }
+
+  /// 取得聊天室列表 API (GET /api/tutoring/chats)
+  static Future<ChatListResponse> getChats({
+    required String userNo,
+    required String xApiKey,
+    required String roleCode,
+  }) async {
+    final url = '$baseUrl/api/tutoring/chats';
+    final headers = _buildHeaders(
+      xApiKey: xApiKey,
+      xUserNo: userNo,
+      xRoleCode: roleCode,
+    );
+
+    const encoder = JsonEncoder.withIndent('  ');
+
+    _log('====== [HTTP REQUEST] 取得聊天室列表 ======\n'
+        'URL: $url\n'
+        'Method: GET\n'
+        'Headers:\n${encoder.convert(headers)}');
+
+    try {
+      final response = await http
+          .get(Uri.parse(url), headers: headers)
+          .timeout(const Duration(seconds: 15));
+
+      final dynamic decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final prettyResponseBody = encoder.convert(decoded);
+
+      _log('====== [HTTP RESPONSE] 取得聊天室列表 ======\n'
+          'Status Code: ${response.statusCode}\n'
+          'Body:\n$prettyResponseBody');
+
+      _handleAuthExpired(decoded);
+
+      if (decoded is Map<String, dynamic>) {
+        return ChatListResponse.fromJson(decoded);
+      } else {
+        return ChatListResponse(
+          success: false,
+          msg: '伺服器回傳格式不正確',
+          data: null,
+        );
+      }
+    } catch (e, stack) {
+      _log('====== [HTTP ERROR] 取得聊天室列表異常 ======\n'
+          'Error: $e\n'
+          'StackTrace: $stack');
+      return ChatListResponse(
+        success: false,
+        msg: '網路連線失敗，請檢查網路狀態或稍後再試。',
+        data: null,
+      );
     }
   }
 }
