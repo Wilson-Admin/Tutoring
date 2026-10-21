@@ -1,11 +1,13 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil_plus/flutter_screenutil_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../API/auth_service.dart';
 import '../資料結構/ChatListResponse.dart';
+import 'TeacherChatRoomPage.dart';
 
 class TeacherContactInteractionPage extends StatefulWidget {
-  final ValueChanged<int>? onUnreadChanged; // 👈 支援回呼通知未讀總數變更[cite: 28]
+  final ValueChanged<int>? onUnreadChanged;
 
   const TeacherContactInteractionPage({super.key, this.onUnreadChanged});
 
@@ -16,27 +18,43 @@ class TeacherContactInteractionPage extends StatefulWidget {
 
 class _TeacherContactInteractionPageState
     extends State<TeacherContactInteractionPage> {
-  int _selectedCampusIndex = 0; // 0: 全部[cite: 28]
+  int _selectedCampusIndex = 0;
   bool _isLoading = false;
 
   List<SchoolInfo> _schools = [];
   List<ChatItem> _allChats = [];
 
+  Timer? _refreshTimer;
+
   final List<Color> _campusColors = [
-    const Color(0xFF5E60CE), // 紫色系[cite: 28]
-    const Color(0xFF00B074), // 綠色系[cite: 28]
-    const Color(0xFFF59E0B), // 橘黃色系[cite: 28]
-    const Color(0xFF3B82F6), // 藍色系[cite: 28]
+    const Color(0xFF5E60CE),
+    const Color(0xFF00B074),
+    const Color(0xFFF59E0B),
+    const Color(0xFF3B82F6),
   ];
 
   @override
   void initState() {
     super.initState();
     _fetchChatList();
+
+    // 背景定時輪詢：每 10 秒自動在背景刷新一次聊天列表，確保收到新訊息
+    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
+      _fetchChatList(isAutoRefresh: true);
+    });
   }
 
-  Future<void> _fetchChatList() async {
-    setState(() => _isLoading = true);
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _fetchChatList({bool isAutoRefresh = false}) async {
+    // 若是背景自動刷新則不顯示畫面中央的 loading
+    if (_allChats.isEmpty && !isAutoRefresh) {
+      setState(() => _isLoading = true);
+    }
 
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -57,13 +75,12 @@ class _TeacherContactInteractionPageState
           _schools = res.data!.schools;
           _allChats = res.data!.chats;
         });
-        // 👈 回呼通知首頁更新導航列未讀 Badge[cite: 28]
         widget.onUnreadChanged?.call(res.data!.unreadTotal);
       }
     } catch (e) {
       debugPrint('[Chat] 讀取聊天室清單失敗: $e');
     } finally {
-      if (mounted) {
+      if (mounted && !isAutoRefresh) {
         setState(() => _isLoading = false);
       }
     }
@@ -97,89 +114,89 @@ class _TeacherContactInteractionPageState
       onTap: () => FocusScope.of(context).unfocus(),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          return SingleChildScrollView(
-            physics: const ClampingScrollPhysics(),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minHeight: constraints.maxHeight,
-                minWidth: constraints.maxWidth,
-              ),
-              child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 12.h),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // 頂部標題（已移除返回鍵）
-                    Text(
-                      '聯絡互動',
-                      style: TextStyle(
-                        fontSize: 22.sp,
-                        fontWeight: FontWeight.w900,
-                        color: const Color(0xFF1E1E1E),
+          return RefreshIndicator(
+            onRefresh: () => _fetchChatList(isAutoRefresh: false),
+            color: const Color(0xFF5E60CE),
+            backgroundColor: Colors.white,
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: constraints.maxHeight,
+                  minWidth: constraints.maxWidth,
+                ),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 12.h),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '聯絡互動',
+                        style: TextStyle(
+                          fontSize: 22.sp,
+                          fontWeight: FontWeight.w900,
+                          color: const Color(0xFF1E1E1E),
+                        ),
                       ),
-                    ),
-                    SizedBox(height: 16.h),
-
-                    // 動態分校過濾標籤列[cite: 28]
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: List.generate(campusTabs.length, (index) {
-                          final isSelected = _selectedCampusIndex == index;
-                          return GestureDetector(
-                            onTap: () => setState(() => _selectedCampusIndex = index),
-                            child: Container(
-                              margin: EdgeInsets.only(right: 10.w),
-                              padding: EdgeInsets.symmetric(horizontal: 18.w, vertical: 8.h),
-                              decoration: BoxDecoration(
-                                color: isSelected ? const Color(0xFF1E272E) : Colors.white,
-                                borderRadius: BorderRadius.circular(20.r),
-                                boxShadow: isSelected
-                                    ? null
-                                    : [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.02),
-                                    blurRadius: 4,
-                                    offset: const Offset(0, 2),
+                      SizedBox(height: 16.h),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: List.generate(campusTabs.length, (index) {
+                            final isSelected = _selectedCampusIndex == index;
+                            return GestureDetector(
+                              onTap: () => setState(() => _selectedCampusIndex = index),
+                              child: Container(
+                                margin: EdgeInsets.only(right: 10.w),
+                                padding: EdgeInsets.symmetric(horizontal: 18.w, vertical: 8.h),
+                                decoration: BoxDecoration(
+                                  color: isSelected ? const Color(0xFF1E272E) : Colors.white,
+                                  borderRadius: BorderRadius.circular(20.r),
+                                  boxShadow: isSelected
+                                      ? null
+                                      : [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.02),
+                                      blurRadius: 4,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: Text(
+                                  campusTabs[index],
+                                  style: TextStyle(
+                                    fontSize: 13.sp,
+                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                                    color: isSelected ? Colors.white : const Color(0xFF8B95A5),
                                   ),
-                                ],
-                              ),
-                              child: Text(
-                                campusTabs[index],
-                                style: TextStyle(
-                                  fontSize: 13.sp,
-                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                                  color: isSelected ? Colors.white : const Color(0xFF8B95A5),
                                 ),
                               ),
-                            ),
-                          );
-                        }),
+                            );
+                          }),
+                        ),
                       ),
-                    ),
-                    SizedBox(height: 20.h),
-
-                    // 聊天室內容區塊[cite: 28]
-                    if (_isLoading)
-                      Padding(
-                        padding: EdgeInsets.symmetric(vertical: 40.h),
-                        child: const Center(
-                          child: CircularProgressIndicator(color: Color(0xFF5E60CE)),
-                        ),
-                      )
-                    else if (_allChats.isEmpty)
-                      Padding(
-                        padding: EdgeInsets.symmetric(vertical: 40.h),
-                        child: Center(
-                          child: Text(
-                            '目前無任何對話訊息',
-                            style: TextStyle(fontSize: 14.sp, color: const Color(0xFF9E9E9E)),
+                      SizedBox(height: 20.h),
+                      if (_isLoading && _allChats.isEmpty)
+                        Padding(
+                          padding: EdgeInsets.symmetric(vertical: 40.h),
+                          child: const Center(
+                            child: CircularProgressIndicator(color: Color(0xFF5E60CE)),
                           ),
-                        ),
-                      )
-                    else
-                      ..._buildCampusSections(),
-                  ],
+                        )
+                      else if (_allChats.isEmpty)
+                        Padding(
+                          padding: EdgeInsets.symmetric(vertical: 40.h),
+                          child: Center(
+                            child: Text(
+                              '目前無任何對話訊息',
+                              style: TextStyle(fontSize: 14.sp, color: const Color(0xFF9E9E9E)),
+                            ),
+                          ),
+                        )
+                      else
+                        ..._buildCampusSections(),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -189,7 +206,6 @@ class _TeacherContactInteractionPageState
     );
   }
 
-  /// 依據學校分組動態產生聊天室清單[cite: 28]
   List<Widget> _buildCampusSections() {
     final List<Widget> sections = [];
 
@@ -197,7 +213,6 @@ class _TeacherContactInteractionPageState
       final school = _schools[i];
       final schoolIndexInTabs = i + 1;
 
-      // 若非全部且非選中分校，則不顯示[cite: 28]
       if (_selectedCampusIndex != 0 && _selectedCampusIndex != schoolIndexInTabs) {
         continue;
       }
@@ -214,16 +229,45 @@ class _TeacherContactInteractionPageState
         sections.add(
           Padding(
             padding: EdgeInsets.only(bottom: 10.h),
-            child: _buildChatCard(
-              avatarColor: themeColor,
-              name: chat.studentNm,
-              members: chat.classNm,
-              message: chat.lastMessage,
-              time: _formatTime(chat.lastMessageAt),
-              badgeCount: chat.unreadCount,
-              isHighlightBorder: chat.unreadCount > 0,
-              borderColor: themeColor.withOpacity(0.3),
-              isMutedText: chat.unreadCount == 0,
+            child: GestureDetector(
+              onTap: () async {
+                // 1. 跳轉至內部聊天室
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => TeacherChatRoomPage(
+                      chatId: chat.chatId,
+                      chatName: chat.studentNm,
+                      subTitle: chat.classNm,
+                      themeColor: themeColor,
+                    ),
+                  ),
+                );
+
+                // 2. 退出聊天室後，樂觀更新：立刻將未讀紅點歸零
+                if (chat.unreadCount > 0) {
+                  setState(() {
+                    chat.unreadCount = 0;
+                  });
+                  int newTotalUnread = _allChats.fold(0, (sum, item) => sum + item.unreadCount);
+                  widget.onUnreadChanged?.call(newTotalUnread);
+                }
+
+                // 3. 立刻觸發一次背景 API 刷新
+                // 這樣能保證自己剛送出的文字/圖片，能馬上更新在外層卡片的「最後一則訊息」與「時間」
+                _fetchChatList(isAutoRefresh: true);
+              },
+              child: _buildChatCard(
+                avatarColor: themeColor,
+                name: chat.studentNm,
+                members: chat.classNm,
+                message: chat.lastMessage,
+                time: _formatTime(chat.lastMessageAt),
+                badgeCount: chat.unreadCount,
+                isHighlightBorder: chat.unreadCount > 0,
+                borderColor: themeColor.withOpacity(0.3),
+                isMutedText: chat.unreadCount == 0,
+              ),
             ),
           ),
         );
@@ -235,7 +279,6 @@ class _TeacherContactInteractionPageState
     return sections;
   }
 
-  /// 分校膠囊標題[cite: 28]
   Widget _buildCampusHeader(String title, Color color) {
     return Row(
       children: [
@@ -260,7 +303,6 @@ class _TeacherContactInteractionPageState
     );
   }
 
-  /// 對話列表卡片[cite: 28]
   Widget _buildChatCard({
     required Color avatarColor,
     required String name,

@@ -744,4 +744,209 @@ class AuthService {
       );
     }
   }
+
+
+  /// 取得聊天室歷史訊息 API (GET /api/tutoring/chats/{chatId}/messages)
+  static Future<Map<String, dynamic>> getChatMessages({
+    required String chatId,
+    String? before,
+    int limit = 30,
+    required String userNo,
+    required String xApiKey,
+    required String roleCode,
+  }) async {
+    // 組合 URL 與 Query Parameters
+    String urlStr = '$baseUrl/api/tutoring/chats/$chatId/messages?limit=$limit';
+    if (before != null && before.isNotEmpty) {
+      urlStr += '&before=$before';
+    }
+
+    final url = Uri.parse(urlStr);
+    final headers = _buildHeaders(
+      xApiKey: xApiKey,
+      xUserNo: userNo,
+      xRoleCode: roleCode,
+    );
+
+    const encoder = JsonEncoder.withIndent('  ');
+
+    _log('====== [HTTP REQUEST] 取得聊天室訊息 ======\n'
+        'URL: $url\n'
+        'Method: GET\n'
+        'Headers:\n${encoder.convert(headers)}');
+
+    try {
+      final response = await http
+          .get(url, headers: headers)
+          .timeout(const Duration(seconds: 15));
+
+      final dynamic decoded = jsonDecode(utf8.decode(response.bodyBytes));
+
+      _log('====== [HTTP RESPONSE] 取得聊天室訊息 ======\n'
+          'Status Code: ${response.statusCode}\n'
+          'Body: $decoded');
+
+      _handleAuthExpired(decoded);
+
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      } else {
+        return {"success": false, "msg": "伺服器回傳格式不正確", "data": null};
+      }
+    } catch (e, stack) {
+      _log('====== [HTTP ERROR] 取得聊天室訊息異常 ======\n'
+          'Error: $e\n'
+          'StackTrace: $stack');
+      return {"success": false, "msg": "網路連線失敗，請檢查網路狀態或稍後再試。", "data": null};
+    }
+  }
+
+
+  /// 發送聊天室文字訊息 API (POST /api/tutoring/chats/{chatId}/messages)
+  static Future<Map<String, dynamic>> sendChatMessage({
+    required String chatId,
+    required String text,
+    required String userNo,
+    required String xApiKey,
+    required String roleCode,
+  }) async {
+    final url = '$baseUrl/api/tutoring/chats/$chatId/messages';
+    final headers = _buildHeaders(
+      xApiKey: xApiKey,
+      xUserNo: userNo,
+      xRoleCode: roleCode,
+    );
+    final requestBody = {
+      'type': 'text',
+      'text': text,
+    };
+
+    const encoder = JsonEncoder.withIndent('  ');
+
+    _log('====== [HTTP REQUEST] 發送聊天室訊息 ======\n'
+        'URL: $url\n'
+        'Method: POST\n'
+        'Headers:\n${encoder.convert(headers)}\n'
+        'Body:\n${encoder.convert(requestBody)}');
+
+    try {
+      final response = await http
+          .post(
+        Uri.parse(url),
+        headers: headers,
+        body: jsonEncode(requestBody),
+      )
+          .timeout(const Duration(seconds: 15));
+
+      final dynamic decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final prettyResponseBody = encoder.convert(decoded);
+
+      _log('====== [HTTP RESPONSE] 發送聊天室訊息 ======\n'
+          'Status Code: ${response.statusCode}\n'
+          'Body:\n$prettyResponseBody');
+
+      _handleAuthExpired(decoded);
+
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      } else {
+        return {
+          "success": false,
+          "msg": "伺服器回傳格式不正確",
+          "data": null,
+        };
+      }
+    } catch (e, stack) {
+      _log('====== [HTTP ERROR] 發送聊天室訊息發生異常 ======\n'
+          'Error: $e\n'
+          'StackTrace: $stack');
+      return {
+        "success": false,
+        "msg": "網路連線失敗，請檢查網路狀態或稍後再試。",
+        "data": null,
+      };
+    }
+  }
+
+  /// 發送聊天室圖片訊息 API (POST /api/tutoring/chats/{chatId}/messages)
+  static Future<Map<String, dynamic>> sendChatImageMessage({
+    required String chatId,
+    required String filePath,
+    required String userNo,
+    required String xApiKey,
+    required String roleCode,
+  }) async {
+    final url = Uri.parse('$baseUrl/api/tutoring/chats/$chatId/messages');
+    final request = http.MultipartRequest('POST', url);
+
+    // 設定 Headers
+    request.headers.addAll({
+      'Authorization': 'Bearer $commonToken',
+      'X-API-Key': xApiKey,
+      'X-User-No': userNo,
+      'X-Role-Code': roleCode,
+    });
+
+    // 附加 Form Data 欄位與檔案
+    request.fields['type'] = 'image';
+    request.files.add(await http.MultipartFile.fromPath('file', filePath));
+
+    _log('====== [HTTP REQUEST] 發送聊天室圖片 ======\nURL: $url\nFilePath: $filePath');
+
+    try {
+      final streamedResponse = await request.send().timeout(const Duration(seconds: 15));
+      final response = await http.Response.fromStream(streamedResponse);
+      final dynamic decoded = jsonDecode(utf8.decode(response.bodyBytes));
+
+      _log('====== [HTTP RESPONSE] 發送聊天室圖片 ======\nStatus: ${response.statusCode}\nBody: $decoded');
+
+      _handleAuthExpired(decoded);
+
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+      return {'success': false, 'msg': '回傳格式異常'};
+    } catch (e, stack) {
+      _log('====== [HTTP ERROR] 發送圖片失敗 ======\nError: $e\n$stack');
+      return {'success': false, 'msg': '圖片上傳失敗，請檢查網路連線'};
+    }
+  }
+
+  /// 收回聊天室訊息 API (DELETE /api/tutoring/chats/{chatId}/messages/{messageId})
+  static Future<Map<String, dynamic>> recallChatMessage({
+    required String chatId,
+    required String messageId,
+    required String userNo,
+    required String xApiKey,
+    required String roleCode,
+  }) async {
+    final url = '$baseUrl/api/tutoring/chats/$chatId/messages/$messageId';
+    final headers = _buildHeaders(
+      xApiKey: xApiKey,
+      xUserNo: userNo,
+      xRoleCode: roleCode,
+    );
+
+    _log('====== [HTTP REQUEST] 收回聊天室訊息 ======\nURL: $url\nMethod: DELETE');
+
+    try {
+      final response = await http
+          .delete(Uri.parse(url), headers: headers)
+          .timeout(const Duration(seconds: 15));
+
+      final dynamic decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      _log('====== [HTTP RESPONSE] 收回聊天室訊息 ======\nStatus: ${response.statusCode}\nBody: $decoded');
+
+      _handleAuthExpired(decoded);
+
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      } else {
+        return {"success": false, "msg": "伺服器回傳格式不正確", "data": null};
+      }
+    } catch (e, stack) {
+      _log('====== [HTTP ERROR] 收回聊天室訊息發生異常 ======\nError: $e\nStackTrace: $stack');
+      return {"success": false, "msg": "網路連線失敗，請檢查網路狀態或稍後再試。", "data": null};
+    }
+  }
 }

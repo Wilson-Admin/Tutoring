@@ -1,3 +1,4 @@
+import 'dart:async'; // 👈 新增引入 Timer
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil_plus/flutter_screenutil_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -19,11 +20,13 @@ class ParentHomePage extends StatefulWidget {
 }
 
 class _ParentHomePageState extends State<ParentHomePage> {
-  int _currentIndex = 2; // 預設 2: 學生管理首頁[cite: 24]
+  int _currentIndex = 2; // 預設 2: 學生管理首頁
   List<StudentItem> _students = [];
   int _selectedStudentIndex = 0;
   bool _isLoadingStudents = false;
-  int _unreadChatTotal = 0; // 👈 儲存未讀聊天室訊息總數 (unreadTotal)
+  int _unreadChatTotal = 0; // 儲存未讀聊天室訊息總數
+
+  Timer? _badgeTimer; // 👈 新增：首頁全域的未讀紅點計時器
 
   final List<Map<String, Color>> _pillColors = [
     {'bg': const Color(0xFF7079FB), 'text': Colors.white},
@@ -36,6 +39,18 @@ class _ParentHomePageState extends State<ParentHomePage> {
   void initState() {
     super.initState();
     _fetchInitialData();
+
+    // 👈 新增：每 10 秒自動在背景拉取未讀總數，確保導航列紅點即時更新
+    _badgeTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      _fetchChatUnreadTotal();
+    });
+  }
+
+  @override
+  void dispose() {
+    // 👈 新增：離開頁面時務必取消計時器
+    _badgeTimer?.cancel();
+    super.dispose();
   }
 
   /// 同時載入學生列表與聊天室未讀總數
@@ -69,7 +84,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
     }
   }
 
-  /// 呼叫聊天室 API 取得 unreadTotal
+  /// 呼叫聊天室 API 取得 unreadTotal (背景靜默執行)
   Future<void> _fetchChatUnreadTotal() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -454,7 +469,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
   Widget _buildBottomNav({required int activeIndex}) {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
 
-    // 將未讀聊天室數量轉為文字（大於 99 顯示 99+，為 0 則不顯示）
+    // 處理未讀數字：大於 99 顯示 99+，0 則為 null (不顯示紅點)
     final chatBadgeText = _unreadChatTotal > 0
         ? (_unreadChatTotal > 99 ? '99+' : _unreadChatTotal.toString())
         : null;
@@ -476,7 +491,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
             Icons.chat_bubble_outline,
             '聊天室',
             1,
-            badge: chatBadgeText, // 👈 動態綁定 API 回傳的 unreadTotal
+            badge: chatBadgeText, // 👈 動態綁定 API 回傳的未讀數字
             isActive: activeIndex == 1,
           ),
           _buildNavItem(Icons.school, '學生管理', 2, isActive: activeIndex == 2),

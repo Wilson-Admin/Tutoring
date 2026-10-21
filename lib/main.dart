@@ -180,18 +180,24 @@ class _WelcomePageState extends State<WelcomePage> {
     );
   }
 
-  /// 在背景判定目標頁面[cite: 29]
+  // 在 main.dart 中的 _resolveTargetPage 函式
+
   Future<Widget> _resolveTargetPage() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final isLoggedIn = prefs.getBool('is_logged_in') ?? false;
 
-      // 1. 未登入狀態 -> 登入頁[cite: 29]
+      // 1. 未登入狀態 -> 登入頁
       if (!isLoggedIn) {
         return const LoginPage();
       }
 
-      // 2. 已登入狀態 -> 嘗試換取今日最新 API Key[cite: 29]
+      // 先把原本快取的身分取出來
+      // 注意：您之前的程式碼家長有時用 'M' 有時用 'P'，建議統一。這裡先同時支援。
+      final savedRoleCode = prefs.getString('role_code') ?? '';
+      final userNm = prefs.getString('user_nm') ?? '';
+
+      // 2. 已登入狀態 -> 嘗試換取今日最新 API Key
       final savedCredentials = await StorageService.getSavedCredentials();
       final phone = savedCredentials['phone'] ?? prefs.getString('user_no') ?? '';
       final password = savedCredentials['password'] ?? '';
@@ -208,29 +214,43 @@ class _WelcomePageState extends State<WelcomePage> {
             await prefs.setString('picLink', data.picLink);
             await prefs.setString('signLink', data.signLink);
 
-            final currentRole = data.hasParentRole
-                ? 'M'
-                : (data.schools.isNotEmpty ? data.schools.first.roleCode : 'T');
-            await prefs.setString('role_code', currentRole);
+            // 核心修正點：如果原本已經有選擇身份，就尊重使用者的選擇，不要覆蓋
+            if (savedRoleCode.isNotEmpty) {
+              // 依照保留的身份進入首頁
+              if (savedRoleCode == 'P' || savedRoleCode == 'M') {
+                return ParentHomePage(userName: data.userNm);
+              } else {
+                return TeacherHomePage(userName: data.userNm);
+              }
+            }
 
+            // ---------- 以下是第一次登入 (沒有 savedRoleCode) 的處理邏輯 ----------
+
+            // 如果是多重身份，且沒有選擇過，導向選擇頁
             if (data.hasMultipleRoles) {
               return RoleSelectionPage(loginData: data);
-            } else if (data.hasParentRole) {
+            }
+
+            // 單一身份的處理
+            final currentRole = data.hasParentRole
+                ? 'P' // 建議統一使用 'P' 代表家長
+                : (data.schools.isNotEmpty ? data.schools.first.roleCode : 'T');
+
+            await prefs.setString('role_code', currentRole);
+
+            if (currentRole == 'P' || currentRole == 'M') {
               return ParentHomePage(userName: data.userNm);
             } else {
               return TeacherHomePage(userName: data.userNm);
             }
           }
         } catch (_) {
-          // 網路連線異常時，使用本機快取身分降級進入[cite: 29]
+          // 網路連線異常時，使用本機快取身分降級進入
         }
       }
 
-      // 3. 快取身分回退判斷[cite: 29]
-      final roleCode = prefs.getString('role_code') ?? 'T';
-      final userNm = prefs.getString('user_nm') ?? '';
-
-      if (roleCode == 'M') {
+      // 3. 快取身分回退判斷 (自動登入失敗，但之前有登入過)
+      if (savedRoleCode == 'P' || savedRoleCode == 'M') {
         return ParentHomePage(userName: userNm);
       } else {
         return TeacherHomePage(userName: userNm);

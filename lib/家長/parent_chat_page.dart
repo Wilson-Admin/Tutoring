@@ -1,11 +1,13 @@
+import 'dart:async'; // 👈 新增引入 Timer
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil_plus/flutter_screenutil_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../API/auth_service.dart';
 import '../資料結構/ChatListResponse.dart';
+import 'ParentChatRoomPage.dart'; // 👈 引入即將建立的對話頁
 
 class ParentChatPage extends StatefulWidget {
-  final ValueChanged<int>? onUnreadChanged; // 👈 增加未讀數量變更回呼
+  final ValueChanged<int>? onUnreadChanged;
 
   const ParentChatPage({super.key, this.onUnreadChanged});
 
@@ -16,6 +18,7 @@ class ParentChatPage extends StatefulWidget {
 class _ParentChatPageState extends State<ParentChatPage> {
   bool _isLoading = false;
   List<ChatItem> _chats = [];
+  Timer? _refreshTimer; // 👈 新增：計時器變數
 
   // 頭像背景色調色盤
   final List<Color> _avatarColors = [
@@ -30,15 +33,32 @@ class _ParentChatPageState extends State<ParentChatPage> {
   void initState() {
     super.initState();
     _fetchParentChats();
+
+    // 👈 新增：每 10 秒自動在背景刷新一次聊天列表
+    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
+      _fetchParentChats(isAutoRefresh: true);
+    });
   }
 
-  Future<void> _fetchParentChats() async {
-    setState(() => _isLoading = true);
+  @override
+  void dispose() {
+    // 👈 新增：離開頁面時務必取消計時器
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  // 👇 修改：加入 isAutoRefresh 參數
+  Future<void> _fetchParentChats({bool isAutoRefresh = false}) async {
+    // 若是背景自動刷新則不顯示畫面中央的 loading
+    if (_chats.isEmpty && !isAutoRefresh) {
+      setState(() => _isLoading = true);
+    }
 
     try {
       final prefs = await SharedPreferences.getInstance();
       final userNo = prefs.getString('user_no') ?? '';
       final xApiKey = prefs.getString('x_api_key') ?? prefs.getString('xApiKey') ?? '';
+      // 家長端固定帶入 P
       final roleCode = prefs.getString('role_code') ?? 'P';
 
       final res = await AuthService.getChats(
@@ -53,13 +73,12 @@ class _ParentChatPageState extends State<ParentChatPage> {
         setState(() {
           _chats = res.data!.chats;
         });
-        // 👈 回呼通知首頁更新導航列未讀 Badge
         widget.onUnreadChanged?.call(res.data!.unreadTotal);
       }
     } catch (e) {
       debugPrint('[ParentChat] 讀取家長聊天室失敗: $e');
     } finally {
-      if (mounted) {
+      if (mounted && !isAutoRefresh) {
         setState(() => _isLoading = false);
       }
     }
@@ -91,76 +110,109 @@ class _ParentChatPageState extends State<ParentChatPage> {
       onTap: () => FocusScope.of(context).unfocus(),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          return SingleChildScrollView(
-            physics: const ClampingScrollPhysics(),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minHeight: constraints.maxHeight,
-                minWidth: constraints.maxWidth,
-              ),
-              child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 12.h),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // 頁面標題
-                    Text(
-                      '聯絡互動',
-                      style: TextStyle(
-                        fontSize: 22.sp,
-                        fontWeight: FontWeight.w900,
-                        color: const Color(0xFF1E1E1E),
-                      ),
-                    ),
-                    SizedBox(height: 20.h),
-
-                    // 聊天室卡片列表
-                    if (_isLoading)
-                      Padding(
-                        padding: EdgeInsets.symmetric(vertical: 40.h),
-                        child: const Center(
-                          child: CircularProgressIndicator(color: Color(0xFF7C69FF)),
+          // 👇 1. 加入 RefreshIndicator 元件
+          return RefreshIndicator(
+            onRefresh: () => _fetchParentChats(isAutoRefresh: false),
+            color: const Color(0xFF7C69FF),
+            backgroundColor: Colors.white,
+            // 👇 2. 設定 AlwaysScrollableScrollPhysics 支援下拉
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: constraints.maxHeight,
+                  minWidth: constraints.maxWidth,
+                ),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 12.h),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '聯絡互動',
+                        style: TextStyle(
+                          fontSize: 22.sp,
+                          fontWeight: FontWeight.w900,
+                          color: const Color(0xFF1E1E1E),
                         ),
-                      )
-                    else if (_chats.isEmpty)
-                      Padding(
-                        padding: EdgeInsets.symmetric(vertical: 40.h),
-                        child: Center(
-                          child: Text(
-                            '目前無任何對話訊息',
-                            style: TextStyle(
-                              fontSize: 14.sp,
-                              color: const Color(0xFF9E9E9E),
+                      ),
+                      SizedBox(height: 20.h),
+
+                      if (_isLoading && _chats.isEmpty)
+                        Padding(
+                          padding: EdgeInsets.symmetric(vertical: 40.h),
+                          child: const Center(
+                            child: CircularProgressIndicator(color: Color(0xFF7C69FF)),
+                          ),
+                        )
+                      else if (_chats.isEmpty)
+                        Padding(
+                          padding: EdgeInsets.symmetric(vertical: 40.h),
+                          child: Center(
+                            child: Text(
+                              '目前無任何對話訊息',
+                              style: TextStyle(
+                                fontSize: 14.sp,
+                                color: const Color(0xFF9E9E9E),
+                              ),
                             ),
                           ),
-                        ),
-                      )
-                    else
-                      ...List.generate(_chats.length, (index) {
-                        final chat = _chats[index];
-                        final avatarColor = _avatarColors[index % _avatarColors.length];
-                        final initialLetter = chat.studentNm.isNotEmpty
-                            ? chat.studentNm.substring(0, 1)
-                            : '學';
+                        )
+                      else
+                        ...List.generate(_chats.length, (index) {
+                          final chat = _chats[index];
+                          final avatarColor = _avatarColors[index % _avatarColors.length];
+                          final initialLetter = chat.studentNm.isNotEmpty
+                              ? chat.studentNm.substring(0, 1)
+                              : '學';
 
-                        return Padding(
-                          padding: EdgeInsets.only(bottom: 12.h),
-                          child: _buildChatCard(
-                            letter: initialLetter,
-                            avatarBgColor: avatarColor,
-                            title: '${chat.studentNm} 群組',
-                            tag: chat.classNm.isNotEmpty ? chat.classNm : null,
-                            message: chat.lastMessage.isNotEmpty ? chat.lastMessage : '尚無對話記錄',
-                            time: _formatTime(chat.lastMessageAt),
-                            badgeCount: chat.unreadCount,
-                            isHighlight: chat.unreadCount > 0,
-                            isMessageBold: chat.unreadCount > 0,
-                          ),
-                        );
-                      }),
+                          return Padding(
+                            padding: EdgeInsets.only(bottom: 12.h),
+                            // 👇 新增：點擊卡片跳轉至對話頁
+                            child: GestureDetector(
+                              onTap: () async {
+                                await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => ParentChatRoomPage(
+                                      chatId: chat.chatId,
+                                      chatName: '${chat.studentNm} 群組',
+                                      subTitle: chat.classNm,
+                                      themeColor: avatarColor,
+                                    ),
+                                  ),
+                                );
 
-                    SizedBox(height: 20.h),
-                  ],
+                                // 退出聊天室後，樂觀更新將未讀歸零
+                                if (chat.unreadCount > 0) {
+                                  setState(() {
+                                    chat.unreadCount = 0;
+                                  });
+                                  int newTotalUnread = _chats.fold(0, (sum, item) => sum + item.unreadCount);
+                                  widget.onUnreadChanged?.call(newTotalUnread);
+                                }
+
+                                // 立刻觸發一次背景 API 刷新更新外部最新訊息
+                                _fetchParentChats(isAutoRefresh: true);
+                              },
+                              child: _buildChatCard(
+                                letter: initialLetter,
+                                avatarBgColor: avatarColor,
+                                title: '${chat.studentNm} 群組',
+                                tag: chat.classNm.isNotEmpty ? chat.classNm : null,
+                                message: chat.lastMessage.isNotEmpty ? chat.lastMessage : '尚無對話記錄',
+                                time: _formatTime(chat.lastMessageAt),
+                                badgeCount: chat.unreadCount,
+                                isHighlight: chat.unreadCount > 0,
+                                isMessageBold: chat.unreadCount > 0,
+                              ),
+                            ),
+                          );
+                        }),
+
+                      SizedBox(height: 20.h),
+                    ],
+                  ),
                 ),
               ),
             ),

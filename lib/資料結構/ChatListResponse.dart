@@ -71,7 +71,7 @@ class ChatItem {
   final String lastMessage;
   final List<String> courseNos;
   final String lastMessageAt;
-  final int unreadCount;
+  int unreadCount;
 
   ChatItem({
     required this.chatId,
