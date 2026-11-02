@@ -1,4 +1,4 @@
-import 'dart:async'; // 👈 新增引入 Timer
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil_plus/flutter_screenutil_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -24,9 +24,11 @@ class _ParentHomePageState extends State<ParentHomePage> {
   List<StudentItem> _students = [];
   int _selectedStudentIndex = 0;
   bool _isLoadingStudents = false;
-  int _unreadChatTotal = 0; // 儲存未讀聊天室訊息總數
 
-  Timer? _badgeTimer; // 👈 新增：首頁全域的未讀紅點計時器
+  int _unreadChatTotal = 0; // 聊天室未讀總數
+  int _unreadNoticeTotal = 0; // 👈 新增：公告未讀總數
+
+  Timer? _badgeTimer;
 
   final List<Map<String, Color>> _pillColors = [
     {'bg': const Color(0xFF7079FB), 'text': Colors.white},
@@ -40,24 +42,25 @@ class _ParentHomePageState extends State<ParentHomePage> {
     super.initState();
     _fetchInitialData();
 
-    // 👈 新增：每 10 秒自動在背景拉取未讀總數，確保導航列紅點即時更新
+    // 每 10 秒自動在背景拉取未讀總數 (包含聊天室與公告)
     _badgeTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       _fetchChatUnreadTotal();
+      _fetchNoticeUnreadTotal(); // 👈 新增：定時更新公告未讀數
     });
   }
 
   @override
   void dispose() {
-    // 👈 新增：離開頁面時務必取消計時器
     _badgeTimer?.cancel();
     super.dispose();
   }
 
-  /// 同時載入學生列表與聊天室未讀總數
+  /// 同時載入學生列表、聊天室未讀總數、公告未讀總數
   Future<void> _fetchInitialData() async {
     await Future.wait([
       _fetchStudents(),
       _fetchChatUnreadTotal(),
+      _fetchNoticeUnreadTotal(), // 👈 新增：初始化時也拉取一次公告
     ]);
   }
 
@@ -84,7 +87,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
     }
   }
 
-  /// 呼叫聊天室 API 取得 unreadTotal (背景靜默執行)
+  /// 呼叫聊天室 API 取得 unreadTotal
   Future<void> _fetchChatUnreadTotal() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -108,6 +111,31 @@ class _ParentHomePageState extends State<ParentHomePage> {
     }
   }
 
+  /// 👈 新增：呼叫公告 API 取得未讀/總數量 (背景靜默執行)
+  Future<void> _fetchNoticeUnreadTotal() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userNo = prefs.getString('user_no') ?? '0900000001';
+      final xApiKey = prefs.getString('x_api_key') ?? prefs.getString('xApiKey') ?? '';
+      final roleCode = prefs.getString('role_code') ?? 'P';
+
+      final res = await AuthService.getActiveNotices(
+        userNo: userNo,
+        xApiKey: xApiKey,
+        roleCode: roleCode,
+      );
+
+      if (mounted && res.success && res.data != null) {
+        setState(() {
+          // 這裡以總公告數為範例。若後端有 unreadTotal 欄位，請改為 res.data!.unreadTotal
+          _unreadNoticeTotal = res.data!.total;
+        });
+      }
+    } catch (e) {
+      debugPrint('[Home] 取得公告未讀數量異常: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -124,7 +152,14 @@ class _ParentHomePageState extends State<ParentHomePage> {
                 child: IndexedStack(
                   index: _currentIndex,
                   children: [
-                    const ParentNotificationPage(),
+                    // 👈 移除 const 並綁定 onNoticeCountChanged 回呼函數
+                    ParentNotificationPage(
+                      onNoticeCountChanged: (count) {
+                        setState(() {
+                          _unreadNoticeTotal = count;
+                        });
+                      },
+                    ),
                     ParentChatPage(
                       onUnreadChanged: (total) {
                         setState(() {
@@ -469,9 +504,13 @@ class _ParentHomePageState extends State<ParentHomePage> {
   Widget _buildBottomNav({required int activeIndex}) {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
 
-    // 處理未讀數字：大於 99 顯示 99+，0 則為 null (不顯示紅點)
     final chatBadgeText = _unreadChatTotal > 0
         ? (_unreadChatTotal > 99 ? '99+' : _unreadChatTotal.toString())
+        : null;
+
+    // 👈 新增：處理通知的未讀數字
+    final noticeBadgeText = _unreadNoticeTotal > 0
+        ? (_unreadNoticeTotal > 99 ? '99+' : _unreadNoticeTotal.toString())
         : null;
 
     return Container(
@@ -486,12 +525,18 @@ class _ParentHomePageState extends State<ParentHomePage> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _buildNavItem(Icons.notifications_none, '通知', 0, badge: '3', isActive: activeIndex == 0),
+          _buildNavItem(
+            Icons.notifications_none,
+            '通知',
+            0,
+            badge: noticeBadgeText, // 👈 動態綁定 API 回傳的通知未讀數字
+            isActive: activeIndex == 0,
+          ),
           _buildNavItem(
             Icons.chat_bubble_outline,
             '聊天室',
             1,
-            badge: chatBadgeText, // 👈 動態綁定 API 回傳的未讀數字
+            badge: chatBadgeText,
             isActive: activeIndex == 1,
           ),
           _buildNavItem(Icons.school, '學生管理', 2, isActive: activeIndex == 2),

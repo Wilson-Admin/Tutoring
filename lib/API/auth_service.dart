@@ -8,10 +8,13 @@ import 'package:http_parser/http_parser.dart';
 import '../共用函式/app_dialog.dart'; // 若 forceLogout 放置的檔案路徑不同請依實際位置調整
 import '../共用函式/app_utils.dart';
 import '../資料結構/ChatListResponse.dart';
+import '../資料結構/NoticeResponse.dart';
 import '../資料結構/Structures.dart';
 import 'package:googleapis_auth/auth_io.dart' as auth;
 
 import '../資料結構/StudentListResponse.dart';
+import '../資料結構/SurveyDetailResponse.dart';
+import '../資料結構/SurveyResponse.dart';
 
 class AuthService {
   static const String baseUrl = 'https://wilson-edu.com';
@@ -403,37 +406,12 @@ class AuthService {
     required String title,
     required String body,
   }) async {
-    // 完整帶入 service account json 所有必要欄位（特別是 "type": "service_account"）
+    // 替換為新的 service account json 內容
     final serviceAccountMap = {
       "type": "service_account",
       "project_id": "tutoring-e52e6",
-      "private_key_id": "405da258e0a7a5e57d0975fb054cf4d5551a0182",
-      "private_key":
-      "-----BEGIN PRIVATE KEY-----\n"
-          "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCxxjPk8lVkBFQ8\n"
-          "SM1ZYVpFwgHcfA2yvONN3xVoGOT/+x8J4mNvA6EtU6RpyAQQTh0ZuRaqF5mTeCGx\n"
-          "8/89AREynwCEZXR3gcWfVyuay7pYU+Ed0C+XwaaBHRjMRmjZirkQ0Vxhge3Xsi9/\n"
-          "YqAsn9UqKH2HjNmFveYoLBuJwLXSQ2eOlI15fLuSUqvaLBdWfceSIX0GUSiQUh5Q\n"
-          "FcwBpjv/rfKHoIisUuwHcEQG+Rs+WqNsbDpqD8It6sLL/UJxt6kEwJpspufBUQbN\n"
-          "eMvhNesQxrEyh5Q85SIjlBwoc9qB2Ff43hUZaP1Kfbm8gV+usa+iIL4D2QOW+NBA\nXNHrqpaJAgMBAAECggEABlwRUjDrJhtTih6OnhJyAMnaeDFF6i2AsjH3WZR+aLvq\n"
-          "lddv+DI4i18RJCmgH5czyk5JRcd3WoOzLOMOL/gATf/LLHFWs8nEMJmVOUHthihm\n"
-          "BsOCWFr4omjQkMo6CQJB8ZyTwfc8c3lv4o48LayAGzR8nSNIStUKzUgaqhhnSMDK\n"
-          "SaRsK9AbKyI1a+62Y6WLDRePBkvncqdDCGSJAdALh0vbrqcvG7fZM5B2n8CJ7Rf2\nxD38aHdk7BlHub1NLRwBhe6FB33sf9QVINojK4WKNQKDE+kITmVpsprZUuS2Ffn4\n"
-          "L3vzbjXGu7CyvWg/jJnoK/occ/tg72cC1CtGoatfiQKBgQDVjjPZxJLD1huknDYx\n"
-          "6U4z+w07pO0mvZ5LDPSrOSmAoZv1JD/tWtlJBNWx5E8w5G0XByR1MK4doCMGfWRj\n"
-          "blkNbp0VV/Z+oQveIcyWYRiCjf9ZHeFYw6Q+utxU5o0XMNPFubKlvPQumK3F+A5i\n"
-          "cL2ujCOm4+RqLt0nyp90QUoanQKBgQDVG28wtJxVnSnPYAOCkZvRiqyCsWGiAERf\n"
-          "8FrKz7AttWGlwrditolsenpyqicjjaRnvULlHQNeLjchXKAWRh7TR/PqoLuMlfhK\n"
-          "6MqB3NmvNQKgJ9rkyICzXN2RBGwyj/X5++SGOCCgdJ4rHbb3QL4Iof8CQlCMN+fg\n"
-          "PLruS8MB3QKBgQC+c86cJKo7CuSmPkY65vW+d+PKUIDLLwpPpmNBnH394KLk0gpN\n"
-          "FNt5Ol2WA6X4VY9QnScPeHWfqCP0crmnz06OIxrmYQdM0TVzSjNZ3YftTtPuVy6U\n"
-          "ag49f4pmESK9Dueei8jd9JDUSYeYaWvysNcJJqPY/57Cb7798L+Z/2wmJQKBgETg\n"
-          "rxlw5q6NM3xBLiE/artZNNSw/DteFrtjdhTi97BuVXc77gXLtbMICxeQg0Hsf9y/\nwSVIMVR5X3w68csBMula8i09ciDIQA4GG53JgdotKgIVn5weaeqO81Xxtf7JpNj9\n"
-          "Xyk6buEtkAmjewWDOWiU41UZlescDqfdORXYCtlJAoGAK6i6Nnb8Gk0xO93oxh8I\n"
-          "O2fNZJ5olH1Ex6JuzUknHunj/Z2A6pfeoV8C6hQB1r6lNehB9uU3Ftz2fH0jXrl4\n"
-          "Glr+uMNk1ov8Di8GecNmVEchyfbTEj/kvoyptkMrO6iKv2plbhI+sE259Him6AuL\n"
-          "JSSYfCCWaS5z4eeRu5+soa4=\n"
-          "-----END PRIVATE KEY-----\n",
+      "private_key_id": "5127a4f242ae6592f361a80324c282e1e668e9a0",
+      "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCtgNqoZbM7VPzn\ngQq5WYO+/itmLmqcjTEwa08hWiMcY9pWgrOPtpjZ2Kml+QRdzqh3cAS1JNPiVaAi\nKwG99hADAMOM5u7woLcxHVl1ChUso+U8slh6hUuLv4+7O+vSa9/IHiGDN90AYfqB\ncyxmgmwkmiYSyUDAC9J0m4MdplvHlovDAkxaSFA47UXtGxq2Rmu6WVX+TC99W+5c\nB3+SamMhUTQ4fSYr4YIn2nmbVWNeHJgJ0dTDS5ncX594nYIysaVokLZX1GCyUSz3\nk9/yQjNqKEnJJKb1GNdCOAq7lbrzNhhHiCEk96bRAGfgtXS41MEu/fNeyb2M7b8f\n7ti7nwV5AgMBAAECggEAEAlkbIM17Up+M8GsJZSeBkXE6iVpKj4sqT6J6lnD/AhI\nso1THnnwp9YMXDBnlGoZDS0X6kxUn0ttySqzdwTq1vQ3nurrc+dO92Wwko5ThbRC\naHlNj0mJwYl7tgEkW2coIH2UeGXt8e6ccmGcXX85kqqC0WKzruyIz8ld9ZweSJS9\nH079KvxnQ0ibZbe2HZDjkkBzSOr42ie+GFdYSsj3IZ4d+1Sr3NQI8Lt7v/KbXZTh\nDm960kV36YT5dxar2DzgDXJQiqe4yEAxHLzL9sNT3gXw8beYz4f4HfKksJVGBPLF\nD1NFcaQbArV9odVPtiM60jjKKP9ZddC9JqlD16ZOzwKBgQDf6FK1K23IBQj33Qg0\nFuKROPfvFZCdMGatVz8mdQfZrxd/YyTGxKE6u21KnDJdlI/KhdSy8AasM4JNIHq2\ni5OaJvvNs5R9NWQJ5+Ahj52UFOLJianF+Gkn1z5BINfh6htLFEeqJ+gq2NEmZxPe\ntji3bENfqB8cVnQXijViOH8+FwKBgQDGXxZEKTrV+jXMhF+SEQKlWvwe0PiFw8Bl\nK4SY1wIkP0S7g08RIn7mQLBb90g97IhGZEqAm4j2PUAA1wq69pos4gM2Ud7WXe2x\nMLZa+76maxDCge9JlEnD1XFnQIO2afTJb1V6hWT+i3H+XvzTtuENm8eu4CrE1RiP\nVLVdCDMi7wKBgQCuN8WK4+TCmnBU8+27IgdeObZomB3ywMNToqwnTy4xiZQ98TWf\nV0WgPk+WmxxxRfPv/9v08uAuQtHjEx+IQ+gwLJ8GefFSzyUss/foBSf2HZ4sdGnd\n+SBQ+KCe6mAvjwl3jKsKUYzLMfLi75c9VgmhZqKxnk2+reIcotRQvWb8NwKBgAC+\nnqDG3teqxsTrwkgUFER2oPekpSorX++BSFAijnmAW0uw5H0V+g/3MjJGLVk+KAzL\nl5QAAXWbKUBXjkzBXDbK6mQrzoBTfe7qVeTliQOq5zczsag/DD/V70UJ8vSeVTLk\nXhfFpGloMJdZ1+0bhKC+cvNvF/oBKsRu9vdQbpC1AoGATDN51clY4b/X4PCDrQDG\nOjYuiOCh5VRPYhVLbKFiYWXZeGCQRDZLM1Y4rxYs60Bz/QNtW27OlA58RZeVVSzI\n/xa/I8/uFsbBr7UP0s4XcutCBxXUWcrvM36ZwCguzUeqsHp0DYYn0zIioRq3tdM2\nRcnbm3LzkYvYU/khNINbDlQ=\n-----END PRIVATE KEY-----\n",
       "client_email": "firebase-adminsdk-fbsvc@tutoring-e52e6.iam.gserviceaccount.com",
       "client_id": "103475901345221584630",
       "auth_uri": "https://accounts.google.com/o/oauth2/auth",
@@ -947,6 +925,265 @@ class AuthService {
     } catch (e, stack) {
       _log('====== [HTTP ERROR] 收回聊天室訊息發生異常 ======\nError: $e\nStackTrace: $stack');
       return {"success": false, "msg": "網路連線失敗，請檢查網路狀態或稍後再試。", "data": null};
+    }
+  }
+
+
+  /// 取得 APP 有效公告列表 (GET /api/tutoring/notices/active)
+  static Future<NoticeResponse> getActiveNotices({
+    required String userNo,
+    required String xApiKey,
+    required String roleCode,
+  }) async {
+    final url = '$baseUrl/api/tutoring/notices/active';
+    final headers = _buildHeaders(
+      xApiKey: xApiKey,
+      xUserNo: userNo,
+      xRoleCode: roleCode,
+    );
+
+    const encoder = JsonEncoder.withIndent('  ');
+
+    _log('====== [HTTP REQUEST] 取得有效公告列表 ======\n'
+        'URL: $url\n'
+        'Method: GET\n'
+        'Headers:\n${encoder.convert(headers)}');
+
+    try {
+      final response = await http
+          .get(Uri.parse(url), headers: headers)
+          .timeout(const Duration(seconds: 15));
+
+      final dynamic decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final prettyResponseBody = encoder.convert(decoded);
+
+      _log('====== [HTTP RESPONSE] 取得有效公告列表 ======\n'
+          'Status Code: ${response.statusCode}\n'
+          'Body:\n$prettyResponseBody');
+
+      _handleAuthExpired(decoded);
+
+      if (decoded is Map<String, dynamic>) {
+        return NoticeResponse.fromJson(decoded);
+      } else {
+        return NoticeResponse(
+          success: false,
+          msg: '伺服器回傳格式不正確',
+          data: null,
+        );
+      }
+    } catch (e, stack) {
+      _log('====== [HTTP ERROR] 取得有效公告列表異常 ======\n'
+          'Error: $e\n'
+          'StackTrace: $stack');
+      return NoticeResponse(
+        success: false,
+        msg: '網路連線失敗，請檢查網路狀態或稍後再試。',
+        data: null,
+      );
+    }
+  }
+  /// 取得家長有效問卷列表 (GET /api/tutoring/surveys/active)
+  static Future<SurveyResponse> getActiveSurveys({
+    required String userNo,
+    required String xApiKey,
+    required String roleCode,
+  }) async {
+    final url = '$baseUrl/api/tutoring/surveys/active';
+    final headers = _buildHeaders(
+      xApiKey: xApiKey,
+      xUserNo: userNo,
+      xRoleCode: roleCode,
+    );
+
+    const encoder = JsonEncoder.withIndent('  ');
+
+    _log('====== [HTTP REQUEST] 取得有效問卷列表 ======\n'
+        'URL: $url\n'
+        'Method: GET\n'
+        'Headers:\n${encoder.convert(headers)}');
+
+    try {
+      final response = await http
+          .get(Uri.parse(url), headers: headers)
+          .timeout(const Duration(seconds: 15));
+
+      final dynamic decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final prettyResponseBody = encoder.convert(decoded);
+
+      _log('====== [HTTP RESPONSE] 取得有效問卷列表 ======\n'
+          'Status Code: ${response.statusCode}\n'
+          'Body:\n$prettyResponseBody');
+
+      _handleAuthExpired(decoded);
+
+      if (decoded is Map<String, dynamic>) {
+        return SurveyResponse.fromJson(decoded);
+      } else {
+        return SurveyResponse(
+          success: false,
+          msg: '伺服器回傳格式不正確',
+          data: null,
+        );
+      }
+    } catch (e, stack) {
+      _log('====== [HTTP ERROR] 取得有效問卷列表異常 ======\n'
+          'Error: $e\n'
+          'StackTrace: $stack');
+      return SurveyResponse(
+        success: false,
+        msg: '網路連線失敗，請檢查網路狀態或稍後再試。,',
+        data: null,
+      );
+    }
+  }
+
+  /// 取得未填寫問卷表單內容 (GET /api/tutoring/surveys/{surveyNo}/form?csNo={csNo})
+  /// 取得未填寫問卷表單內容 (GET /api/tutoring/surveys/{surveyNo}/form?csNo={csNo})
+  static Future<SurveyDetailResponse> getSurveyForm({
+    required String surveyNo,
+    required String csNo,
+    required String userNo,
+    required String xApiKey,
+    required String roleCode,
+  }) async {
+    final url = '$baseUrl/api/tutoring/surveys/$surveyNo/form?csNo=$csNo';
+    final headers = _buildHeaders(
+      xApiKey: xApiKey,
+      xUserNo: userNo,
+      xRoleCode: roleCode,
+    );
+
+    const encoder = JsonEncoder.withIndent('  ');
+
+    _log('====== [HTTP REQUEST] 取得未填寫問卷表單 ======\n'
+        'URL: $url\n'
+        'Method: GET\n'
+        'Headers:\n${encoder.convert(headers)}');
+
+    try {
+      final response = await http.get(Uri.parse(url), headers: headers).timeout(const Duration(seconds: 15));
+      final dynamic decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final prettyResponseBody = encoder.convert(decoded);
+
+      _log('====== [HTTP RESPONSE] 取得未填寫問卷表單 ======\n'
+          'Status Code: ${response.statusCode}\n'
+          'Body:\n$prettyResponseBody');
+
+      _handleAuthExpired(decoded);
+
+      if (decoded is Map<String, dynamic>) {
+        return SurveyDetailResponse.fromJson(decoded);
+      }
+      return SurveyDetailResponse(success: false, msg: '伺服器回傳格式不正確', data: null);
+    } catch (e, stack) {
+      _log('====== [HTTP ERROR] 取得未填寫問卷表單異常 ======\nError: $e\nStackTrace: $stack');
+      return SurveyDetailResponse(success: false, msg: '網路連線失敗，請稍後再試。', data: null);
+    }
+  }
+
+  /// 取得已填寫問卷歷史記錄 (GET /api/tutoring/surveys/{surveyNo}/history?csNo={csNo})
+  static Future<SurveyDetailResponse> getSurveyHistory({
+    required String surveyNo,
+    required String csNo,
+    required String userNo,
+    required String xApiKey,
+    required String roleCode,
+  }) async {
+    final url = '$baseUrl/api/tutoring/surveys/$surveyNo/history?csNo=$csNo';
+    final headers = _buildHeaders(
+      xApiKey: xApiKey,
+      xUserNo: userNo,
+      xRoleCode: roleCode,
+    );
+
+    const encoder = JsonEncoder.withIndent('  ');
+
+    _log('====== [HTTP REQUEST] 取得已填寫問卷歷史 ======\n'
+        'URL: $url\n'
+        'Method: GET\n'
+        'Headers:\n${encoder.convert(headers)}');
+
+    try {
+      final response = await http.get(Uri.parse(url), headers: headers).timeout(const Duration(seconds: 15));
+      final dynamic decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final prettyResponseBody = encoder.convert(decoded);
+
+      _log('====== [HTTP RESPONSE] 取得已填寫問卷歷史 ======\n'
+          'Status Code: ${response.statusCode}\n'
+          'Body:\n$prettyResponseBody');
+
+      _handleAuthExpired(decoded);
+
+      if (decoded is Map<String, dynamic>) {
+        return SurveyDetailResponse.fromJson(decoded);
+      }
+      return SurveyDetailResponse(success: false, msg: '伺服器回傳格式不正確', data: null);
+    } catch (e, stack) {
+      _log('====== [HTTP ERROR] 取得已填寫問卷歷史異常 ======\nError: $e\nStackTrace: $stack');
+      return SurveyDetailResponse(success: false, msg: '網路連線失敗，請稍後再試。', data: null);
+    }
+  }
+
+
+  /// 家長提交問卷答案 (POST /api/tutoring/surveys/{surveyNo}/responses)
+  static Future submitSurvey({
+    required String surveyNo,
+    required String csNo,
+    required Map<int, int> answers, // key: questionSr, value: optionSr
+    required String userNo,
+    required String xApiKey,
+    required String roleCode,
+  }) async {
+    final url = '$baseUrl/api/tutoring/surveys/$surveyNo/responses';
+    final headers = _buildHeaders(
+      xApiKey: xApiKey,
+      xUserNo: userNo,
+      xRoleCode: roleCode,
+    );
+
+    const encoder = JsonEncoder.withIndent('  ');
+
+    // 依照 API 規格將 answers Map 轉成 List
+    final List answerList = answers.entries.map((e) => {
+    'questionSr': e.key,
+    'optionSr': e.value,
+    }).toList();
+
+    final requestBody = {
+    'csNo': csNo,
+    'answers': answerList,
+    };
+
+    _log('====== [HTTP REQUEST] 提交問卷 ======\n'
+    'URL: $url\n'
+    'Method: POST\n'
+    'Headers:\n${encoder.convert(headers)}\n'
+    'Body:\n${encoder.convert(requestBody)}');
+
+    try {
+    final response = await http.post(
+    Uri.parse(url),
+    headers: headers,
+    body: jsonEncode(requestBody),
+    ).timeout(const Duration(seconds: 15));
+
+    final dynamic decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    final prettyResponseBody = encoder.convert(decoded);
+
+    _log('====== [HTTP RESPONSE] 提交問卷 ======\n'
+    'Status Code: ${response.statusCode}\n'
+    'Body:\n$prettyResponseBody');
+
+    _handleAuthExpired(decoded);
+
+    if (decoded is Map<String, dynamic>) {
+    return decoded;
+    }
+    return {'success': false, 'msg': '伺服器回傳格式不正確'};
+    } catch (e, stack) {
+    _log('====== [HTTP ERROR] 提交問卷異常 ======\nError: $e\nStackTrace: $stack');
+    return {'success': false, 'msg': '網路連線失敗，請檢查網路狀態或稍後再試。'};
     }
   }
 }
