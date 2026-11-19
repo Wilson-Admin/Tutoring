@@ -659,6 +659,13 @@ class _ParentSettingsPageState extends State<ParentSettingsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF7F9FC),
+      // 加上 AppBar 讓使用者可以返回上一頁
+      appBar: AppBar(
+        backgroundColor: const Color(0xFFF7F9FC),
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.black),
+        title: Text('設定', style: TextStyle(color: Colors.black, fontSize: 18.sp, fontWeight: FontWeight.bold)),
+      ),
       body: SafeArea(
         child: GestureDetector(
           behavior: HitTestBehavior.translucent,

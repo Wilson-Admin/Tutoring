@@ -84,13 +84,45 @@ class _LoginPageState extends State<LoginPage> {
       if (!mounted) return;
 
       if (response.success && response.data != null) {
+        final data = response.data!;
+
+        // ========================================================
+        // 新增：根據身份對照表，將 roleCode 轉換為中文並印出 Log
+        // ========================================================
+        final Map<String, String> roleNames = {
+          'A': 'Admin (系統管理員)',
+          'M': 'Manager (主管)',
+          'T': 'Teacher (老師)',
+          'S': 'Staff (櫃台 / 行政)',
+          'P': 'Parent (家長)',
+          'F': 'Face (人臉辨識)',
+          'L': '廣播/考勤系統',
+        };
+
+        final roleLogs = data.schools.map((s) {
+          final code = s.roleCode.toUpperCase();
+          final chineseName = roleNames[code] ?? '未知身份';
+          return '$code: $chineseName';
+        }).toList();
+
+        print('登入使用者的所有角色: $roleLogs');
+
+        // ========================================================
+        // 判斷是否為廣播系統 (roleCode == 'L')
+        // 只要有任一身份的 roleCode 為 'L'，就不繼續登入流程並顯示提示
+        // ========================================================
+        final bool isBroadcastRole = data.schools.any((s) => s.roleCode.toUpperCase() == 'L');
+        if (isBroadcastRole) {
+          AppDialog.show(message: '廣播頁面建置中...');
+          return;
+        }
+
         await StorageService.saveCredentials(
           phone: phone,
           password: password,
           rememberMe: _rememberMe,
         );
 
-        final data = response.data!;
         final prefs = await SharedPreferences.getInstance();
 
         await prefs.setString('user_no', data.userNo);

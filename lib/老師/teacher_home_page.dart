@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil_plus/flutter_screenutil_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../API/auth_service.dart';
+import '../共用函式/CurvedNavigationBar/curved_navigation_bar.dart';
 import 'teacher_contact_interaction_page.dart';
 import 'teacher_notification_page.dart';
 import 'teacher_settings_page.dart';
@@ -15,9 +16,12 @@ class TeacherHomePage extends StatefulWidget {
   State<TeacherHomePage> createState() => _TeacherHomePageState();
 }
 
+// 記得 import 您的 CurvedNavigationBar 檔案，例如：
+// import 'curved_navigation_bar.dart';
+
 class _TeacherHomePageState extends State<TeacherHomePage> {
-  int _currentIndex = 2; // 預設選中 2: 學生管理 (首頁)[cite: 26]
-  int _unreadChatTotal = 0; // 👈 儲存聯絡互動未讀總數 (unreadTotal)
+  int _currentIndex = 0; // 預設選中 2: 學生管理 (首頁)[cite: 9]
+  int _unreadChatTotal = 0; // 儲存聯絡互動未讀總數[cite: 9]
 
   @override
   void initState() {
@@ -25,7 +29,7 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
     _fetchChatUnreadTotal();
   }
 
-  /// 呼叫聊天室 API 取得未讀訊息總數
+  /// 呼叫聊天室 API 取得未讀訊息總數[cite: 9]
   Future<void> _fetchChatUnreadTotal() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -51,36 +55,62 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
 
   @override
   Widget build(BuildContext context) {
+    // 將未讀總數轉為文字[cite: 9]
+    final chatBadgeText = _unreadChatTotal > 0
+        ? (_unreadChatTotal > 99 ? '99+' : _unreadChatTotal.toString())
+        : null;
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () => FocusScope.of(context).unfocus(),
       child: Scaffold(
         backgroundColor: const Color(0xFFF9FAFC),
-        resizeToAvoidBottomInset: false, // 👈 鍵盤彈出時不改變 Scaffold 尺寸[cite: 26]
+        resizeToAvoidBottomInset: false, // 鍵盤彈出時不改變 Scaffold 尺寸[cite: 9]
+
+        // 使用 CurvedNavigationBar 作為底部導航列[cite: 5]
+        bottomNavigationBar: CurvedNavigationBar(
+          index: _currentIndex,
+          // 注意：套件源碼限制 height 最大值為 75.0[cite: 5]
+          height: 65.0,
+          // backgroundColor 必須與 Scaffold 相同，凹槽處才會完美融合[cite: 5]
+          backgroundColor: const Color(0xFFF9FAFC),
+          // 導航列主體的深色[cite: 5]
+          color: const Color(0xFF1B2B48),
+          // 懸浮圓圈的亮藍色[cite: 5]
+          buttonBackgroundColor: const Color(0xFF81D4FA),
+          // 套用絲滑動畫曲線與時間[cite: 5]
+          animationCurve: Curves.fastOutSlowIn,
+          animationDuration: const Duration(milliseconds: 350),
+          onTap: (index) {
+            setState(() {
+              _currentIndex = index; // 點選切換畫面[cite: 9]
+            });
+          },
+          items: [
+            _buildBadgeIcon('assets/webp/8.webp', null, 0),
+            _buildBadgeIcon('assets/webp/7.webp', '3', 1),
+            _buildBadgeIcon('assets/webp/6.webp', null, 2),
+            _buildBadgeIcon('assets/webp/5.webp', chatBadgeText, 3),
+            _buildBadgeIcon('assets/webp/4.webp', null, 4),
+          ],
+        ),
+
         body: SafeArea(
           bottom: false,
-          child: Column(
+          child: IndexedStack(
+            index: _currentIndex,
             children: [
-              Expanded(
-                child: IndexedStack(
-                  index: _currentIndex,
-                  children: [
-                    const TeacherNotificationPage(), // index 0: 通知中心介面[cite: 26]
-                    TeacherContactInteractionPage(
-                      onUnreadChanged: (total) {
-                        setState(() {
-                          _unreadChatTotal = total;
-                        });
-                      },
-                    ), // index 1: 聯絡互動[cite: 26]
-                    _buildHomeDashboard(), // index 2: 學生管理 / 儀表板首頁[cite: 26]
-                    const Center(child: Text('教學管理頁面')), // index 3[cite: 26]
-                    const TeacherSettingsPage(), // index 4: 設定頁[cite: 26]
-                  ],
-                ),
-              ),
-              // 底部常駐導航列[cite: 26]
-              _buildBottomNav(activeIndex: _currentIndex),
+              _buildHomeDashboard(), //
+              const TeacherNotificationPage(),
+              Container(),
+              TeacherContactInteractionPage(
+                onUnreadChanged: (total) {
+                  setState(() {
+                    _unreadChatTotal = total;
+                  });
+                },
+              ), //
+              Container()
             ],
           ),
         ),
@@ -88,8 +118,74 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
     );
   }
 
-  /// 首頁原本的儀表板內容（滿版適配）[cite: 26]
+  /// 處理圖標與未讀紅點 (配合 CurvedNavigationBar 使用)
+  /// [iconOrAsset] 可以傳入 IconData 或 String(Asset 路徑)
+  Widget _buildBadgeIcon(dynamic iconOrAsset, String? badge, int itemIndex) {
+    final bool isActive = _currentIndex == itemIndex;
+
+    // 決定圖標顏色
+    final Color iconColor = isActive ? Colors.white : const Color(0xFF81D4FA);
+
+    // 建立內部的圖標 Widget
+    Widget iconWidget;
+    if (iconOrAsset is IconData) {
+      // 處理內建 IconData
+      iconWidget = Icon(
+        iconOrAsset,
+        size: 22.sp,
+        color: iconColor,
+      );
+    } else if (iconOrAsset is String) {
+      // 處理自訂圖片路徑
+      iconWidget = Image.asset(
+        iconOrAsset,
+        width: 22.sp,
+        height: 22.sp,
+        color: iconColor, // 👈 讓圖片也能配合選中狀態變色 (圖片需為帶有透明背景的單色圖)
+        fit: BoxFit.contain,
+      );
+    } else {
+      // 例外情況的預設圖標
+      iconWidget = Icon(Icons.error, size: 22.sp, color: iconColor);
+    }
+
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.center,
+      children: [
+        iconWidget,
+        if (badge != null)
+          Positioned(
+            right: -6.w,
+            top: -6.h,
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: 5.w, vertical: 2.h),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFF4D4F),
+                borderRadius: BorderRadius.circular(10.r),
+              ),
+              constraints: BoxConstraints(minWidth: 16.w, minHeight: 16.w),
+              child: Text(
+                badge,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 10.sp,
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  // ==========================================
+  // 下方保留您原本的 Dashboard 內部 UI 程式碼不變
+  // ==========================================
+
   Widget _buildHomeDashboard() {
+    // ... [保留原本內容][cite: 9]
     return LayoutBuilder(
       builder: (context, constraints) {
         return SingleChildScrollView(
@@ -105,16 +201,31 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   SizedBox(height: 16.h),
-                  Text(
-                    '${widget.userName}，早安',
-                    style: TextStyle(
-                      fontSize: 22.sp,
-                      fontWeight: FontWeight.w900,
-                      color: const Color(0xFF1E1E1E),
+                  Row(children: [
+                    Text(
+                      '${widget.userName}，早安',
+                      style: TextStyle(
+                        fontSize: 22.sp,
+                        fontWeight: FontWeight.w900,
+                        color: const Color(0xFF1E1E1E),
+                      ),
                     ),
-                  ),
+                    Expanded(child: Container()),
+                    GestureDetector(
+                        onTap: (){
+                          // 使用 Navigator.push 跳轉至 TeacherSettingsPage
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const TeacherSettingsPage(),
+                            ),
+                          );
+                        },
+                        child: Icon(Icons.settings,size: 26.w,))
+                  ],),
+                  
                   SizedBox(height: 14.h),
-                  // 頂部統計指標[cite: 26]
+                  // 頂部統計指標[cite: 9]
                   Row(
                     children: [
                       _buildStatBox(count: '4', label: '今日課堂', bgColor: const Color(0xFFEBEBFF), accentColor: const Color(0xFF5352ED)),
@@ -125,7 +236,7 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
                     ],
                   ),
                   SizedBox(height: 24.h),
-                  // 今日課表與星期切換[cite: 26]
+                  // 今日課表與星期切換[cite: 9]
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -142,7 +253,7 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
                     ],
                   ),
                   SizedBox(height: 12.h),
-                  // 課堂列表[cite: 26]
+                  // 課堂列表[cite: 9]
                   _buildTeacherCourseCard(
                     time: '16:00',
                     title: '數學',
@@ -196,7 +307,7 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
                     trailingWidget: _buildActionTag('點名', const Color(0xFFFFECEE), const Color(0xFFFF5A60)),
                   ),
                   SizedBox(height: 24.h),
-                  // 打卡浮動按鈕區塊[cite: 26]
+                  // 打卡浮動按鈕區塊[cite: 9]
                   Align(
                     alignment: Alignment.centerRight,
                     child: Row(
@@ -239,7 +350,7 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
                     ),
                   ),
                   SizedBox(height: 16.h),
-                  // 快速功能[cite: 26]
+                  // 快速功能[cite: 9]
                   Text('快速功能', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold, color: const Color(0xFF1E1E1E))),
                   SizedBox(height: 12.h),
                   Row(
@@ -262,7 +373,8 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
   }
 
   Widget _buildStatBox({required String count, required String label, required Color bgColor, required Color accentColor}) {
-    return Expanded(
+    return Expanded( //[cite: 9]
+      // ...保留原內容
       child: Container(
         padding: EdgeInsets.symmetric(vertical: 10.h),
         decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(14.r)),
@@ -279,7 +391,8 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
   }
 
   Widget _buildDayCircle(String day, {bool isSelected = false}) {
-    return Container(
+    return Container( //[cite: 9]
+      // ...保留原內容
       margin: EdgeInsets.only(left: 4.w),
       width: 26.w,
       height: 26.w,
@@ -309,7 +422,8 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
     required Widget trailingWidget,
     bool isHighlight = false,
   }) {
-    return Container(
+    return Container( //[cite: 9]
+      // ...保留原內容
       padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -343,7 +457,8 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
   }
 
   Widget _buildActionTag(String label, Color bgColor, Color textColor) {
-    return Container(
+    return Container( //[cite: 9]
+      // ...保留原內容
       padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
       decoration: BoxDecoration(
         color: bgColor,
@@ -360,7 +475,8 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
   }
 
   Widget _buildQuickAction(String title, IconData icon, Color bgColor, Color iconColor) {
-    return Column(
+    return Column( //[cite: 9]
+      // ...保留原內容
       children: [
         Container(
           width: 70.w,
@@ -371,88 +487,6 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
         SizedBox(height: 6.h),
         Text(title, style: TextStyle(fontSize: 11.sp, color: const Color(0xFF424242), fontWeight: FontWeight.w500)),
       ],
-    );
-  }
-
-  Widget _buildBottomNav({required int activeIndex}) {
-    final bottomPadding = MediaQuery.of(context).padding.bottom;
-
-    // 將未讀總數轉為文字（大於 99 顯示 99+，0 則為 null 不顯示 Badge）
-    final chatBadgeText = _unreadChatTotal > 0
-        ? (_unreadChatTotal > 99 ? '99+' : _unreadChatTotal.toString())
-        : null;
-
-    return Container(
-      padding: EdgeInsets.only(
-        top: 8.h,
-        bottom: bottomPadding > 0 ? bottomPadding : 8.h,
-      ),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1B2B48),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20.r)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _buildNavItem(Icons.notifications_none, '通知', 0, badge: '3', isActive: activeIndex == 0),
-          _buildNavItem(
-            Icons.chat_bubble_outline,
-            '聯絡互動',
-            1,
-            badge: chatBadgeText, // 👈 動態綁定 API 回傳的 unreadTotal
-            isActive: activeIndex == 1,
-          ),
-          _buildNavItem(Icons.group, '學生管理', 2, isActive: activeIndex == 2),
-          _buildNavItem(Icons.menu_book, '教學管理', 3, isActive: activeIndex == 3),
-          _buildNavItem(Icons.settings_outlined, '設定', 4, isActive: activeIndex == 4),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNavItem(IconData icon, String title, int index, {bool isActive = false, String? badge}) {
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _currentIndex = index; // 點選切換畫面[cite: 26]
-        });
-      },
-      behavior: HitTestBehavior.opaque,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 22.sp, color: isActive ? const Color(0xFFFFCA28) : Colors.white70),
-              SizedBox(height: 4.h),
-              Text(title, style: TextStyle(fontSize: 11.sp, color: isActive ? const Color(0xFFFFCA28) : Colors.white70)),
-            ],
-          ),
-          if (badge != null)
-            Positioned(
-              right: -6,
-              top: -3,
-              child: Container(
-                padding: EdgeInsets.symmetric(horizontal: 4.w, vertical: 2.h),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFF4D4F),
-                  borderRadius: BorderRadius.circular(10.r),
-                ),
-                constraints: BoxConstraints(minWidth: 16.w, minHeight: 16.w),
-                child: Text(
-                  badge,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 9.sp,
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
     );
   }
 }
