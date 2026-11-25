@@ -7,6 +7,8 @@ import 'package:http_parser/http_parser.dart';
 
 import '../共用函式/app_dialog.dart'; // 若 forceLogout 放置的檔案路徑不同請依實際位置調整
 import '../共用函式/app_utils.dart';
+import '../資料結構/AdminSurveyListResponse.dart';
+import '../資料結構/AdminSurveyStatisticsResponse.dart';
 import '../資料結構/ChatListResponse.dart';
 import '../資料結構/NoticeResponse.dart';
 import '../資料結構/Structures.dart';
@@ -1184,6 +1186,118 @@ class AuthService {
     } catch (e, stack) {
     _log('====== [HTTP ERROR] 提交問卷異常 ======\nError: $e\nStackTrace: $stack');
     return {'success': false, 'msg': '網路連線失敗，請檢查網路狀態或稍後再試。'};
+    }
+  }
+
+
+  /// 取得管理端問卷列表 (GET /api/tutoring/surveys)
+  static Future<AdminSurveyListResponse> getSurveys({
+    required String userNo,
+    required String xApiKey,
+    required String roleCode,
+  }) async {
+    final url = '$baseUrl/api/tutoring/surveys';
+    final headers = _buildHeaders(
+      xApiKey: xApiKey,
+      xUserNo: userNo,
+      xRoleCode: roleCode,
+    );
+
+    const encoder = JsonEncoder.withIndent('  ');
+
+    _log('====== [HTTP REQUEST] 取得問卷列表 ======\n'
+        'URL: $url\n'
+        'Method: GET\n'
+        'Headers:\n${encoder.convert(headers)}');
+
+    try {
+      final response = await http
+          .get(Uri.parse(url), headers: headers)
+          .timeout(const Duration(seconds: 15));
+
+      final dynamic decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final prettyResponseBody = encoder.convert(decoded);
+
+      _log('====== [HTTP RESPONSE] 取得問卷列表 ======\n'
+          'Status Code: ${response.statusCode}\n'
+          'Body:\n$prettyResponseBody');
+
+      _handleAuthExpired(decoded);
+
+      if (decoded is Map<String, dynamic>) {
+        return AdminSurveyListResponse.fromJson(decoded);
+      } else {
+        return AdminSurveyListResponse(
+          success: false,
+          msg: '伺服器回傳格式不正確',
+          data: null,
+        );
+      }
+    } catch (e, stack) {
+      _log('====== [HTTP ERROR] 取得問卷列表異常 ======\n'
+          'Error: $e\n'
+          'StackTrace: $stack');
+      return AdminSurveyListResponse(
+        success: false,
+        msg: '網路連線失敗，請檢查網路狀態或稍後再試。',
+        data: null,
+      );
+    }
+  }
+
+  /// 取得問卷統計資料 (GET /api/tutoring/surveys/{surveyNo}/statistics)
+  static Future<AdminSurveyStatisticsResponse> getSurveyStatistics({
+    required String surveyNo,
+    required String userNo,
+    required String xApiKey,
+    required String roleCode,
+  }) async {
+    final url = '$baseUrl/api/tutoring/surveys/$surveyNo/statistics';
+    final headers = _buildHeaders(
+      xApiKey: xApiKey,
+      xUserNo: userNo,
+      xRoleCode: roleCode,
+    );
+
+    const encoder = JsonEncoder.withIndent('  ');
+
+    _log('====== [HTTP REQUEST] 取得問卷統計 ======\n'
+        'URL: $url\n'
+        'Method: GET\n'
+        'Headers:\n${encoder.convert(headers)}');
+
+    try {
+      final response = await http
+          .get(Uri.parse(url), headers: headers)
+          .timeout(const Duration(seconds: 15));
+
+      final dynamic decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final prettyResponseBody = encoder.convert(decoded);
+
+      _log('====== [HTTP RESPONSE] 取得問卷統計 ======\n'
+          'Status Code: ${response.statusCode}\n'
+          'Body:\n$prettyResponseBody');
+
+      _handleAuthExpired(decoded);
+
+      if (decoded is Map<String, dynamic>) {
+        return AdminSurveyStatisticsResponse.fromJson(decoded);
+      } else {
+        return AdminSurveyStatisticsResponse(
+          success: false,
+          msg: '伺服器回傳格式不正確',
+          data: null,
+        );
+      }
+    } catch (e, stack) {
+      _log('====== [HTTP ERROR] 取得問卷統計異常 ======\n'
+          'Error: $e\n'
+          'StackTrace: $stack');
+      return AdminSurveyStatisticsResponse(
+        success: false,
+        msg: '網路連線失敗，請檢查網路狀態或稍後再試。',
+        data: null,
+      );
     }
   }
 }
